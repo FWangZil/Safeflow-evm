@@ -4,23 +4,25 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Bot, User, Sparkles, Loader2, ArrowRight, Zap, TrendingUp, Shield } from 'lucide-react';
 import type { ChatMessage, EarnVault } from '@/types';
 import { formatApy, formatTvl } from '@/lib/earn-api';
+import { useTranslation } from '@/i18n';
 
 interface ChatAgentProps {
   onSelectVault?: (vault: EarnVault) => void;
 }
 
-const QUICK_PROMPTS = [
-  { icon: <TrendingUp className="w-3.5 h-3.5" />, text: 'Best stablecoin vaults on Base' },
-  { icon: <Zap className="w-3.5 h-3.5" />, text: 'Top 5 ETH yield opportunities' },
-  { icon: <Shield className="w-3.5 h-3.5" />, text: 'Safest vault with APY above 5%' },
-];
-
 export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const QUICK_PROMPTS = [
+    { icon: <TrendingUp className="w-3.5 h-3.5" />, text: t('chat.quickPrompts.stablecoin') },
+    { icon: <Zap className="w-3.5 h-3.5" />, text: t('chat.quickPrompts.eth') },
+    { icon: <Shield className="w-3.5 h-3.5" />, text: t('chat.quickPrompts.safe') },
+  ];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -62,7 +64,7 @@ export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
       const errorMsg: ChatMessage = {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        content: `Sorry, I encountered an error. ${err instanceof Error ? err.message : 'Please try again.'}`,
+        content: `${t('chat.errorPrefix')} ${err instanceof Error ? err.message : t('chat.errorRetry')}`,
         timestamp: Date.now(),
       };
       setMessages(prev => [...prev, errorMsg]);
@@ -70,7 +72,7 @@ export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
       setIsLoading(false);
       inputRef.current?.focus();
     }
-  }, [isLoading, messages]);
+  }, [isLoading, messages, t]);
 
   const handleSend = () => sendMessage(input);
 
@@ -84,12 +86,12 @@ export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
           <Bot className="w-4.5 h-4.5 text-primary" />
         </div>
         <div className="flex-1">
-          <div className="font-semibold text-sm">SafeFlow AI Agent</div>
-          <div className="text-xs text-muted-foreground">LI.FI Earn • SessionCap Protected</div>
+          <div className="font-semibold text-sm">{t('chat.headerTitle')}</div>
+          <div className="text-xs text-muted-foreground">{t('chat.headerSubtitle')}</div>
         </div>
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-xs text-emerald-500 font-medium">Online</span>
+          <span className="text-xs text-emerald-500 font-medium">{t('chat.online')}</span>
         </div>
       </div>
 
@@ -101,9 +103,9 @@ export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center mb-5 ring-1 ring-primary/10">
               <Sparkles className="w-7 h-7 text-primary" />
             </div>
-            <h3 className="text-lg font-semibold mb-1.5">SafeFlow Yield Agent</h3>
+            <h3 className="text-lg font-semibold mb-1.5">{t('chat.welcomeTitle')}</h3>
             <p className="text-sm text-muted-foreground text-center max-w-sm mb-8">
-              I discover, analyze and execute DeFi yield strategies — with on-chain spending guardrails.
+              {t('chat.welcomeSubtitle')}
             </p>
             <div className="w-full max-w-md space-y-2">
               {QUICK_PROMPTS.map((prompt, i) => (
@@ -206,7 +208,7 @@ export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
                 <div className="bg-secondary/60 rounded-2xl rounded-tl-md px-4 py-3">
                   <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
                     <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                    <span>Analyzing vaults...</span>
+                    <span>{t('chat.analyzing')}</span>
                   </div>
                 </div>
               </div>
@@ -225,7 +227,7 @@ export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder={isEmpty ? 'Ask me anything about DeFi yield...' : 'Follow up...'}
+            placeholder={isEmpty ? t('chat.inputPlaceholder') : t('chat.inputFollowUp')}
             disabled={isLoading}
             className="flex-1 px-4 py-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 placeholder:text-muted-foreground/60 disabled:opacity-50 transition-all"
           />
@@ -239,7 +241,7 @@ export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
         </div>
         <div className="flex items-center justify-center gap-1.5 mt-2 text-[10px] text-muted-foreground/50">
           <Shield className="w-3 h-3" />
-          <span>All deposits protected by SessionCap spending limits</span>
+          <span>{t('chat.sessionCapNote')}</span>
         </div>
       </div>
     </div>

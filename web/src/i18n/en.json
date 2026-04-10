@@ -1,0 +1,90 @@
+{
+  "app": {
+    "title": "SafeFlow",
+    "subtitle": "Yield Agent",
+    "description": "AI-powered DeFi yield management with on-chain security guardrails"
+  },
+  "nav": {
+    "aiAgent": "AI Agent",
+    "explore": "Explore",
+    "portfolio": "Portfolio",
+    "settings": "Settings",
+    "connectWallet": "Connect Wallet"
+  },
+  "chat": {
+    "title": "AI Yield Agent",
+    "subtitle": "Tell me your yield strategy in plain English. I'll find the best vaults and execute deposits securely.",
+    "headerTitle": "SafeFlow AI Agent",
+    "headerSubtitle": "LI.FI Earn • SessionCap Protected",
+    "online": "Online",
+    "welcomeTitle": "SafeFlow Yield Agent",
+    "welcomeSubtitle": "I discover, analyze and execute DeFi yield strategies — with on-chain spending guardrails.",
+    "analyzing": "Analyzing vaults...",
+    "inputPlaceholder": "Ask me anything about DeFi yield...",
+    "inputFollowUp": "Follow up...",
+    "sessionCapNote": "All deposits protected by SessionCap spending limits",
+    "errorPrefix": "Sorry, I encountered an error.",
+    "errorRetry": "Please try again.",
+    "quickPrompts": {
+      "stablecoin": "Best stablecoin vaults on Base",
+      "eth": "Top 5 ETH yield opportunities",
+      "safe": "Safest vault with APY above 5%"
+    }
+  },
+  "explore": {
+    "title": "Yield Vaults",
+    "subtitle": "Discover and compare yield opportunities across 20+ protocols. Powered by LI.FI Earn API.",
+    "search": "Search vaults, protocols, tokens...",
+    "allChains": "All Chains",
+    "allTags": "All Tags",
+    "loading": "Loading vaults from LI.FI Earn API...",
+    "noResults": "No vaults found matching your criteria.",
+    "showing": "Showing {shown} of {total} vaults",
+    "dataSource": "Data from LI.FI Earn API",
+    "deposit": "Deposit",
+    "tableHeaders": {
+      "vault": "Vault",
+      "protocol": "Protocol",
+      "chain": "Chain",
+      "token": "Token",
+      "apy": "APY",
+      "tvl": "TVL",
+      "tags": "Tags"
+    }
+  },
+  "portfolio": {
+    "title": "Portfolio",
+    "subtitle": "View your current yield positions and performance.",
+    "connectPrompt": "Connect your wallet to view portfolio positions.",
+    "dataSource": "Data from LI.FI Earn Portfolio API"
+  },
+  "settings": {
+    "title": "Session Policy",
+    "subtitle": "Configure SafeFlow SessionCap parameters for your AI agent.",
+    "spendingLimits": "Spending Limits",
+    "maxPerInterval": "Max per interval",
+    "maxTotal": "Max total",
+    "intervalSeconds": "Interval (seconds)",
+    "agentConfig": "Agent Configuration",
+    "agentAddress": "Agent address",
+    "expiry": "Expiry",
+    "createSessionCap": "Create SessionCap"
+  },
+  "vaultModal": {
+    "totalApy": "Total APY",
+    "baseApy": "Base APY",
+    "rewardApy": "Reward APY",
+    "tokens": "Tokens",
+    "tags": "Tags",
+    "depositButton": "Deposit via SafeFlow Agent",
+    "protectedNote": "Protected by SessionCap spending limits",
+    "tvl": "TVL"
+  },
+  "footer": {
+    "left": "SafeFlow Yield Agent — DeFi Mullet Hackathon #1 • Track 2: AI × Earn",
+    "right": "Powered by LI.FI Earn API"
+  },
+  "common": {
+    "na": "N/A"
+  }
+}

@@ -5,6 +5,9 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Shield, TrendingUp, MessageSquare, BarChart3, Settings, ExternalLink } from 'lucide-react';
 import VaultExplorer from '@/components/VaultExplorer';
 import ChatAgent from '@/components/ChatAgent';
+import ThemeToggle from '@/components/ThemeToggle';
+import LangToggle from '@/components/LangToggle';
+import { useTranslation } from '@/i18n';
 import type { EarnVault } from '@/types';
 
 type Tab = 'chat' | 'explore' | 'portfolio' | 'settings';
@@ -12,16 +15,17 @@ type Tab = 'chat' | 'explore' | 'portfolio' | 'settings';
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('chat');
   const [selectedVault, setSelectedVault] = useState<EarnVault | null>(null);
+  const { t } = useTranslation();
 
   const handleSelectVault = (vault: EarnVault) => {
     setSelectedVault(vault);
   };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'chat', label: 'AI Agent', icon: <MessageSquare className="w-4 h-4" /> },
-    { id: 'explore', label: 'Explore', icon: <TrendingUp className="w-4 h-4" /> },
-    { id: 'portfolio', label: 'Portfolio', icon: <BarChart3 className="w-4 h-4" /> },
-    { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
+    { id: 'chat', label: t('nav.aiAgent'), icon: <MessageSquare className="w-4 h-4" /> },
+    { id: 'explore', label: t('nav.explore'), icon: <TrendingUp className="w-4 h-4" /> },
+    { id: 'portfolio', label: t('nav.portfolio'), icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'settings', label: t('nav.settings'), icon: <Settings className="w-4 h-4" /> },
   ];
 
   return (
@@ -35,8 +39,8 @@ export default function Home() {
                 <Shield className="w-4.5 h-4.5 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-bold tracking-tight">SafeFlow</h1>
-                <p className="text-xs text-muted-foreground -mt-0.5">Yield Agent</p>
+                <h1 className="text-lg font-bold tracking-tight">{t('app.title')}</h1>
+                <p className="text-xs text-muted-foreground -mt-0.5">{t('app.subtitle')}</p>
               </div>
             </div>
 
@@ -57,7 +61,9 @@ export default function Home() {
               ))}
             </nav>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <LangToggle />
+              <ThemeToggle />
               <a
                 href="https://github.com"
                 target="_blank"
@@ -76,7 +82,7 @@ export default function Home() {
                           onClick={openConnectModal}
                           className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
                         >
-                          Connect Wallet
+                          {t('nav.connectWallet')}
                         </button>
                       ) : (
                         <div className="flex items-center gap-2">
@@ -130,9 +136,9 @@ export default function Home() {
         {activeTab === 'explore' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-bold">Yield Vaults</h2>
+              <h2 className="text-2xl font-bold">{t('explore.title')}</h2>
               <p className="text-muted-foreground mt-1">
-                Discover and compare yield opportunities across 20+ protocols. Powered by LI.FI Earn API.
+                {t('explore.subtitle')}
               </p>
             </div>
             <VaultExplorer onSelectVault={handleSelectVault} />
@@ -142,15 +148,15 @@ export default function Home() {
         {activeTab === 'portfolio' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-bold">Portfolio</h2>
+              <h2 className="text-2xl font-bold">{t('portfolio.title')}</h2>
               <p className="text-muted-foreground mt-1">
-                View your current yield positions and performance.
+                {t('portfolio.subtitle')}
               </p>
             </div>
             <div className="p-8 border border-border rounded-lg bg-card text-center">
               <BarChart3 className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">Connect your wallet to view portfolio positions.</p>
-              <p className="text-xs text-muted-foreground mt-1">Data from LI.FI Earn Portfolio API</p>
+              <p className="text-muted-foreground">{t('portfolio.connectPrompt')}</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('portfolio.dataSource')}</p>
             </div>
           </div>
         )}
@@ -158,16 +164,16 @@ export default function Home() {
         {activeTab === 'settings' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-bold">Session Policy</h2>
+              <h2 className="text-2xl font-bold">{t('settings.title')}</h2>
               <p className="text-muted-foreground mt-1">
-                Configure SafeFlow SessionCap parameters for your AI agent.
+                {t('settings.subtitle')}
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="p-5 border border-border rounded-lg bg-card space-y-3">
-                <h3 className="font-medium">Spending Limits</h3>
+                <h3 className="font-medium">{t('settings.spendingLimits')}</h3>
                 <div className="space-y-2">
-                  <label className="block text-sm text-muted-foreground">Max per interval</label>
+                  <label className="block text-sm text-muted-foreground">{t('settings.maxPerInterval')}</label>
                   <input
                     type="text"
                     placeholder="1000 USDC"
@@ -175,7 +181,7 @@ export default function Home() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-sm text-muted-foreground">Max total</label>
+                  <label className="block text-sm text-muted-foreground">{t('settings.maxTotal')}</label>
                   <input
                     type="text"
                     placeholder="5000 USDC"
@@ -183,7 +189,7 @@ export default function Home() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-sm text-muted-foreground">Interval (seconds)</label>
+                  <label className="block text-sm text-muted-foreground">{t('settings.intervalSeconds')}</label>
                   <input
                     type="text"
                     placeholder="3600"
@@ -192,9 +198,9 @@ export default function Home() {
                 </div>
               </div>
               <div className="p-5 border border-border rounded-lg bg-card space-y-3">
-                <h3 className="font-medium">Agent Configuration</h3>
+                <h3 className="font-medium">{t('settings.agentConfig')}</h3>
                 <div className="space-y-2">
-                  <label className="block text-sm text-muted-foreground">Agent address</label>
+                  <label className="block text-sm text-muted-foreground">{t('settings.agentAddress')}</label>
                   <input
                     type="text"
                     placeholder="0x..."
@@ -202,14 +208,14 @@ export default function Home() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-sm text-muted-foreground">Expiry</label>
+                  <label className="block text-sm text-muted-foreground">{t('settings.expiry')}</label>
                   <input
                     type="datetime-local"
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
                 <button className="w-full mt-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
-                  Create SessionCap
+                  {t('settings.createSessionCap')}
                 </button>
               </div>
             </div>
@@ -220,8 +226,8 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-border py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between text-xs text-muted-foreground">
-          <span>SafeFlow Yield Agent — DeFi Mullet Hackathon #1 • Track 2: AI × Earn</span>
-          <span>Powered by LI.FI Earn API</span>
+          <span>{t('footer.left')}</span>
+          <span>{t('footer.right')}</span>
         </div>
       </footer>
 
@@ -239,37 +245,37 @@ export default function Home() {
 
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div className="p-3 bg-background rounded-lg">
-                <div className="text-xs text-muted-foreground">Total APY</div>
-                <div className="text-lg font-bold text-success">{selectedVault.analytics?.apy?.total?.toFixed(2) ?? 'N/A'}%</div>
+                <div className="text-xs text-muted-foreground">{t('vaultModal.totalApy')}</div>
+                <div className="text-lg font-bold text-success">{selectedVault.analytics?.apy?.total?.toFixed(2) ?? t('common.na')}%</div>
               </div>
               <div className="p-3 bg-background rounded-lg">
-                <div className="text-xs text-muted-foreground">TVL</div>
+                <div className="text-xs text-muted-foreground">{t('vaultModal.tvl')}</div>
                 <div className="text-lg font-bold">
-                  {selectedVault.analytics?.tvl?.usd ? `$${(Number(selectedVault.analytics.tvl.usd) / 1e6).toFixed(2)}M` : 'N/A'}
+                  {selectedVault.analytics?.tvl?.usd ? `$${(Number(selectedVault.analytics.tvl.usd) / 1e6).toFixed(2)}M` : t('common.na')}
                 </div>
               </div>
               <div className="p-3 bg-background rounded-lg">
-                <div className="text-xs text-muted-foreground">Base APY</div>
-                <div className="font-medium">{selectedVault.analytics?.apy?.base?.toFixed(2) ?? 'N/A'}%</div>
+                <div className="text-xs text-muted-foreground">{t('vaultModal.baseApy')}</div>
+                <div className="font-medium">{selectedVault.analytics?.apy?.base?.toFixed(2) ?? t('common.na')}%</div>
               </div>
               <div className="p-3 bg-background rounded-lg">
-                <div className="text-xs text-muted-foreground">Reward APY</div>
+                <div className="text-xs text-muted-foreground">{t('vaultModal.rewardApy')}</div>
                 <div className="font-medium">{selectedVault.analytics?.apy?.reward?.toFixed(2) ?? '0'}%</div>
               </div>
             </div>
 
             <div className="mb-4">
-              <div className="text-xs text-muted-foreground mb-1.5">Tokens</div>
+              <div className="text-xs text-muted-foreground mb-1.5">{t('vaultModal.tokens')}</div>
               <div className="flex flex-wrap gap-1.5">
-                {selectedVault.underlyingTokens?.map(t => (
-                  <span key={t.address} className="px-2 py-1 bg-secondary rounded text-xs font-medium">{t.symbol}</span>
+                {selectedVault.underlyingTokens?.map(vt => (
+                  <span key={vt.address} className="px-2 py-1 bg-secondary rounded text-xs font-medium">{vt.symbol}</span>
                 ))}
               </div>
             </div>
 
             {selectedVault.tags && selectedVault.tags.length > 0 && (
               <div className="mb-4">
-                <div className="text-xs text-muted-foreground mb-1.5">Tags</div>
+                <div className="text-xs text-muted-foreground mb-1.5">{t('vaultModal.tags')}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {selectedVault.tags.map(tag => (
                     <span key={tag} className="px-2 py-1 bg-primary/10 text-primary rounded text-xs">{tag}</span>
@@ -279,10 +285,10 @@ export default function Home() {
             )}
 
             <button className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors">
-              Deposit via SafeFlow Agent
+              {t('vaultModal.depositButton')}
             </button>
             <p className="text-xs text-muted-foreground text-center mt-2">
-              Protected by SessionCap spending limits
+              {t('vaultModal.protectedNote')}
             </p>
           </div>
         </div>
