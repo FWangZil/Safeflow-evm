@@ -59,8 +59,12 @@ contract SafeFlowVault is ISafeFlowEvents {
     // ─── Modifiers ───────────────────────────────────────────
 
     modifier onlyWalletOwner(uint256 walletId) {
-        if (wallets[walletId].owner != msg.sender) revert NotOwner();
+        _checkWalletOwner(walletId);
         _;
+    }
+
+    function _checkWalletOwner(uint256 walletId) internal view {
+        if (wallets[walletId].owner != msg.sender) revert NotOwner();
     }
 
     // ─── Wallet Management ───────────────────────────────────
@@ -75,7 +79,7 @@ contract SafeFlowVault is ISafeFlowEvents {
         if (!wallets[walletId].exists) revert InvalidSessionCap();
         if (amount == 0) revert ZeroAmount();
 
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        if (!IERC20(token).transferFrom(msg.sender, address(this), amount)) revert TransferFailed();
         balances[walletId][token] += amount;
         emit Deposited(walletId, token, amount);
     }
@@ -85,7 +89,7 @@ contract SafeFlowVault is ISafeFlowEvents {
         if (balances[walletId][token] < amount) revert InsufficientBalance();
 
         balances[walletId][token] -= amount;
-        IERC20(token).transfer(msg.sender, amount);
+        if (!IERC20(token).transfer(msg.sender, amount)) revert TransferFailed();
         emit Withdrawn(walletId, token, amount);
     }
 

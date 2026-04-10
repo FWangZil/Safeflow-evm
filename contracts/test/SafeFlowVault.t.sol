@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {SafeFlowVault} from "../src/SafeFlowVault.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
@@ -78,7 +78,7 @@ contract SafeFlowVaultTest is Test {
         bytes memory callData = abi.encodeWithSignature("transfer(address,uint256)", recipient, 500e6);
 
         vm.prank(agent);
-        vault.executeDeposit(capId, address(usdc), 500e6, address(usdc), bytes32("evidence1"), callData);
+        vault.executeDeposit(capId, address(usdc), 500e6, address(usdc), keccak256("evidence1"), callData);
 
         // Check cap state updated
         SafeFlowVault.SessionCap memory cap = vault.getSessionCap(capId);
@@ -91,7 +91,7 @@ contract SafeFlowVaultTest is Test {
 
         vm.prank(agent);
         vm.expectRevert(SafeFlowVault.SessionExpired.selector);
-        vault.executeDeposit(capId, address(usdc), 100e6, address(usdc), bytes32("evidence"), "");
+        vault.executeDeposit(capId, address(usdc), 100e6, address(usdc), keccak256("evidence"), "");
     }
 
     function test_ExecuteDepositRevertTotalLimit() public {
@@ -102,13 +102,13 @@ contract SafeFlowVaultTest is Test {
         // First 5 calls of 1000 each should succeed with interval resets
         for (uint256 i = 0; i < 5; i++) {
             vm.warp(block.timestamp + 3601); // new interval
-            vault.executeDeposit(capId, address(usdc), 1000e6, address(usdc), bytes32("evidence"), callData);
+            vault.executeDeposit(capId, address(usdc), 1000e6, address(usdc), keccak256("evidence"), callData);
         }
 
         // 6th call should fail
         vm.warp(block.timestamp + 3601);
         vm.expectRevert(SafeFlowVault.ExceedsTotalLimit.selector);
-        vault.executeDeposit(capId, address(usdc), 1000e6, address(usdc), bytes32("evidence"), callData);
+        vault.executeDeposit(capId, address(usdc), 1000e6, address(usdc), keccak256("evidence"), callData);
         vm.stopPrank();
     }
 
@@ -117,11 +117,11 @@ contract SafeFlowVaultTest is Test {
 
         vm.startPrank(agent);
         // First call of 600 succeeds
-        vault.executeDeposit(capId, address(usdc), 600e6, address(usdc), bytes32("ev1"), callData);
+        vault.executeDeposit(capId, address(usdc), 600e6, address(usdc), keccak256("ev1"), callData);
 
         // Second call of 600 in same interval should fail (1200 > 1000 limit)
         vm.expectRevert(SafeFlowVault.ExceedsIntervalLimit.selector);
-        vault.executeDeposit(capId, address(usdc), 600e6, address(usdc), bytes32("ev2"), callData);
+        vault.executeDeposit(capId, address(usdc), 600e6, address(usdc), keccak256("ev2"), callData);
         vm.stopPrank();
     }
 
@@ -135,7 +135,7 @@ contract SafeFlowVaultTest is Test {
         // Agent can no longer execute
         vm.prank(agent);
         vm.expectRevert(SafeFlowVault.SessionCapNotActive.selector);
-        vault.executeDeposit(capId, address(usdc), 100e6, address(usdc), bytes32("ev"), "");
+        vault.executeDeposit(capId, address(usdc), 100e6, address(usdc), keccak256("ev"), "");
     }
 
     function test_GetRemainingAllowance() public view {
@@ -147,6 +147,6 @@ contract SafeFlowVaultTest is Test {
     function test_ExecuteDepositRevertWrongAgent() public {
         vm.prank(owner);
         vm.expectRevert(SafeFlowVault.InvalidSessionCap.selector);
-        vault.executeDeposit(capId, address(usdc), 100e6, address(usdc), bytes32("ev"), "");
+        vault.executeDeposit(capId, address(usdc), 100e6, address(usdc), keccak256("ev"), "");
     }
 }
