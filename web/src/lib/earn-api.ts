@@ -1,6 +1,6 @@
 import type { EarnVault, EarnVaultsResponse, PortfolioPosition } from '@/types';
 
-const EARN_API_BASE = 'https://earn.li.fi';
+const EARN_API_BASE = typeof window !== 'undefined' ? '' : 'https://earn.li.fi';
 
 export interface VaultFilters {
   chainId?: number;
@@ -23,7 +23,10 @@ export async function fetchVaults(filters: VaultFilters = {}): Promise<EarnVault
   if (filters.limit) params.set('limit', String(filters.limit));
   if (filters.offset) params.set('offset', String(filters.offset));
 
-  const url = `${EARN_API_BASE}/v1/earn/vaults?${params.toString()}`;
+  const isClient = typeof window !== 'undefined';
+  const url = isClient
+    ? `/api/earn/vaults?${params.toString()}`
+    : `https://earn.li.fi/v1/earn/vaults?${params.toString()}`;
   const res = await fetch(url);
 
   if (!res.ok) {
@@ -78,7 +81,10 @@ export async function fetchVaults(filters: VaultFilters = {}): Promise<EarnVault
 }
 
 export async function fetchPortfolio(walletAddress: string): Promise<PortfolioPosition[]> {
-  const url = `${EARN_API_BASE}/v1/earn/portfolio/${walletAddress}/positions`;
+  const isClient = typeof window !== 'undefined';
+  const url = isClient
+    ? `/api/earn/portfolio/${walletAddress}`
+    : `https://earn.li.fi/v1/earn/portfolio/${walletAddress}/positions`;
   const res = await fetch(url);
 
   if (!res.ok) {
