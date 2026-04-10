@@ -7,10 +7,10 @@ import VaultExplorer from '@/components/VaultExplorer';
 import ChatAgent from '@/components/ChatAgent';
 import type { EarnVault } from '@/types';
 
-type Tab = 'explore' | 'chat' | 'portfolio' | 'settings';
+type Tab = 'chat' | 'explore' | 'portfolio' | 'settings';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<Tab>('explore');
+  const [activeTab, setActiveTab] = useState<Tab>('chat');
   const [selectedVault, setSelectedVault] = useState<EarnVault | null>(null);
 
   const handleSelectVault = (vault: EarnVault) => {
@@ -18,8 +18,8 @@ export default function Home() {
   };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'explore', label: 'Explore', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'chat', label: 'AI Agent', icon: <MessageSquare className="w-4 h-4" /> },
+    { id: 'explore', label: 'Explore', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'portfolio', label: 'Portfolio', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
   ];
@@ -121,6 +121,12 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+        {activeTab === 'chat' && (
+          <div className="max-w-4xl mx-auto w-full">
+            <ChatAgent onSelectVault={handleSelectVault} />
+          </div>
+        )}
+
         {activeTab === 'explore' && (
           <div className="space-y-6">
             <div>
@@ -130,20 +136,6 @@ export default function Home() {
               </p>
             </div>
             <VaultExplorer onSelectVault={handleSelectVault} />
-          </div>
-        )}
-
-        {activeTab === 'chat' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold">AI Yield Agent</h2>
-              <p className="text-muted-foreground mt-1">
-                Tell me your yield strategy in plain English. I&apos;ll find the best vaults and execute deposits securely.
-              </p>
-            </div>
-            <div className="max-w-3xl">
-              <ChatAgent onSelectVault={handleSelectVault} />
-            </div>
           </div>
         )}
 
