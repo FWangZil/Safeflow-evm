@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Search, ArrowUpDown, Coins } from 'lucide-react';
+import { Search, ArrowUpDown, Coins, TrendingUp } from 'lucide-react';
 import type { EarnVault } from '@/types';
 import { CHAIN_IDS } from '@/types';
 import { fetchVaults, formatApy, formatTvl, type VaultFilters } from '@/lib/earn-api';
@@ -73,7 +73,7 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
   return (
     <div className="space-y-4">
       {/* Filters */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-2.5">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
@@ -81,14 +81,14 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
             placeholder={t('explore.search')}
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-card border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
+            className="w-full pl-10 pr-4 py-2 bg-input border border-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/50 transition-all"
           />
         </div>
 
         <select
           value={selectedChain}
           onChange={e => setSelectedChain(e.target.value)}
-          className="px-3 py-2.5 bg-card border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className="px-3 py-2 bg-input border border-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
         >
           <option value="all">{t('explore.allChains')}</option>
           {Object.keys(CHAIN_IDS).map(chain => (
@@ -101,7 +101,7 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
         <select
           value={selectedTag}
           onChange={e => setSelectedTag(e.target.value)}
-          className="px-3 py-2.5 bg-card border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className="px-3 py-2 bg-input border border-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
         >
           <option value="all">{t('explore.allTags')}</option>
           <option value="stablecoin">Stablecoin</option>
@@ -112,48 +112,48 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
 
       {/* Error */}
       {error && (
-        <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
+        <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-sm">
           {error}
         </div>
       )}
 
       {/* Table */}
-      <div className="border border-border rounded-lg overflow-hidden">
+      <div className="border border-border rounded-xl overflow-hidden glow-border">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-card border-b border-border">
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">{t('explore.tableHeaders.vault')}</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">{t('explore.tableHeaders.protocol')}</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">{t('explore.tableHeaders.chain')}</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">{t('explore.tableHeaders.token')}</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">
-                  <button onClick={() => toggleSort('apy')} className="inline-flex items-center gap-1 hover:text-foreground">
+              <tr className="bg-secondary/40 border-b border-border">
+                <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{t('explore.tableHeaders.vault')}</th>
+                <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{t('explore.tableHeaders.protocol')}</th>
+                <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{t('explore.tableHeaders.chain')}</th>
+                <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{t('explore.tableHeaders.token')}</th>
+                <th className="text-right px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  <button onClick={() => toggleSort('apy')} className="inline-flex items-center gap-1 hover:text-foreground transition-colors">
                     {t('explore.tableHeaders.apy')} <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">
-                  <button onClick={() => toggleSort('tvl')} className="inline-flex items-center gap-1 hover:text-foreground">
+                <th className="text-right px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  <button onClick={() => toggleSort('tvl')} className="inline-flex items-center gap-1 hover:text-foreground transition-colors">
                     {t('explore.tableHeaders.tvl')} <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
-                <th className="text-center px-4 py-3 font-medium text-muted-foreground">{t('explore.tableHeaders.tags')}</th>
-                <th className="px-4 py-3"></th>
+                <th className="text-center px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{t('explore.tableHeaders.tags')}</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                      {t('explore.loading')}
+                  <td colSpan={8} className="px-4 py-16 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      <span className="text-xs">{t('explore.loading')}</span>
                     </div>
                   </td>
                 </tr>
               ) : filteredVaults.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-16 text-center text-muted-foreground text-xs">
                     {t('explore.noResults')}
                   </td>
                 </tr>
@@ -161,41 +161,41 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
                 filteredVaults.slice(0, 50).map((vault, i) => (
                   <tr
                     key={`${vault.address}-${vault.chainId}-${i}`}
-                    className="border-b border-border last:border-0 hover:bg-card/50 cursor-pointer transition-colors"
+                    className="border-b border-border/50 last:border-0 hover:bg-primary/[0.03] cursor-pointer transition-colors duration-150 group"
                     onClick={() => onSelectVault?.(vault)}
                   >
                     <td className="px-4 py-3">
-                      <div className="font-medium text-foreground truncate max-w-[200px]">{vault.name}</div>
+                      <div className="font-semibold text-foreground truncate max-w-[200px] group-hover:text-primary transition-colors">{vault.name}</div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{vault.protocol?.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">{vault.protocol?.name}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 bg-secondary rounded text-xs font-medium">
+                      <span className="px-2 py-0.5 bg-secondary/80 rounded-md text-[11px] font-semibold">
                         {vault.network || `Chain ${vault.chainId}`}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <Coins className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span>{vault.underlyingTokens?.map(tk => tk.symbol).join(' / ') || '—'}</span>
+                      <div className="flex items-center gap-1 text-xs">
+                        <Coins className="w-3 h-3 text-muted-foreground" />
+                        <span className="font-data">{vault.underlyingTokens?.map(tk => tk.symbol).join(' / ') || '—'}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="text-success font-medium">
+                      <span className="text-success font-bold font-data text-xs">
                         {formatApy(vault.analytics?.apy?.total)}
                       </span>
                       {vault.analytics?.apy?.reward != null && vault.analytics.apy.reward > 0 && (
-                        <div className="text-xs text-muted-foreground">
+                        <div className="text-[10px] text-muted-foreground font-data">
                           +{formatApy(vault.analytics.apy.reward)} reward
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right text-muted-foreground">
+                    <td className="px-4 py-3 text-right text-muted-foreground font-data text-xs">
                       {formatTvl(vault.analytics?.tvl?.usd)}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <div className="flex flex-wrap gap-1 justify-center">
                         {vault.tags?.slice(0, 2).map(tag => (
-                          <span key={tag} className="px-1.5 py-0.5 bg-primary/10 text-primary rounded text-xs">
+                          <span key={tag} className="px-1.5 py-0.5 bg-primary/10 text-primary rounded-md text-[10px] font-semibold">
                             {tag}
                           </span>
                         ))}
@@ -207,7 +207,7 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
                           e.stopPropagation();
                           onSelectVault?.(vault);
                         }}
-                        className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition-colors"
+                        className="px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-[11px] font-semibold hover:bg-primary hover:text-primary-foreground transition-all duration-200"
                       >
                         {t('explore.deposit')}
                       </button>
@@ -220,9 +220,14 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
         </div>
       </div>
 
-      {!loading && (
-        <div className="text-xs text-muted-foreground text-right">
-          {t('explore.showing', { shown: Math.min(filteredVaults.length, 50), total: filteredVaults.length })} • {t('explore.dataSource')}
+      {/* Footer */}
+      {!loading && filteredVaults.length > 0 && (
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground/50">
+          <span className="flex items-center gap-1">
+            <TrendingUp className="w-3 h-3" />
+            {t('explore.showing', { shown: Math.min(filteredVaults.length, 50), total: filteredVaults.length })}
+          </span>
+          <span>{t('explore.dataSource')}</span>
         </div>
       )}
     </div>

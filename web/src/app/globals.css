@@ -2,42 +2,52 @@
 
 /* ─── Light mode (default) ──────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #09090b;
-  --card: #f4f4f5;
-  --card-foreground: #09090b;
-  --border: #e4e4e7;
-  --input: #e4e4e7;
-  --primary: #6366f1;
+  --background: #f5f6fa;
+  --foreground: #0f1023;
+  --card: #ffffff;
+  --card-foreground: #0f1023;
+  --border: #e0e2ec;
+  --input: #e0e2ec;
+  --primary: #4f46e5;
   --primary-foreground: #ffffff;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #18181b;
-  --accent: #6366f1;
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --destructive: #ef4444;
-  --success: #22c55e;
-  --warning: #f59e0b;
+  --secondary: #eef0f6;
+  --secondary-foreground: #1e1f36;
+  --accent: #4f46e5;
+  --muted: #eef0f6;
+  --muted-foreground: #6b6e85;
+  --destructive: #dc2626;
+  --success: #16a34a;
+  --warning: #d97706;
+  --glow-primary: rgba(79, 70, 229, 0.12);
+  --glow-success: rgba(22, 163, 74, 0.12);
+  --dot-color: rgba(15, 16, 35, 0.06);
+  --card-shadow: 0 1px 3px rgba(15, 16, 35, 0.04), 0 1px 2px rgba(15, 16, 35, 0.02);
+  --card-shadow-hover: 0 8px 24px rgba(79, 70, 229, 0.08), 0 2px 8px rgba(15, 16, 35, 0.04);
 }
 
 /* ─── Dark mode ─────────────────────────────────────────────── */
 .dark {
-  --background: #09090b;
-  --foreground: #fafafa;
-  --card: #18181b;
-  --card-foreground: #fafafa;
-  --border: #27272a;
-  --input: #27272a;
-  --primary: #6366f1;
-  --primary-foreground: #fafafa;
-  --secondary: #27272a;
-  --secondary-foreground: #fafafa;
-  --accent: #6366f1;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa;
-  --destructive: #ef4444;
-  --success: #22c55e;
-  --warning: #f59e0b;
+  --background: #08080f;
+  --foreground: #e8eaf0;
+  --card: #101020;
+  --card-foreground: #e8eaf0;
+  --border: rgba(99, 102, 241, 0.1);
+  --input: rgba(99, 102, 241, 0.08);
+  --primary: #818cf8;
+  --primary-foreground: #08080f;
+  --secondary: rgba(99, 102, 241, 0.06);
+  --secondary-foreground: #e8eaf0;
+  --accent: #818cf8;
+  --muted: rgba(99, 102, 241, 0.06);
+  --muted-foreground: #6b6f8a;
+  --destructive: #f87171;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --glow-primary: rgba(129, 140, 248, 0.15);
+  --glow-success: rgba(74, 222, 128, 0.15);
+  --dot-color: rgba(129, 140, 248, 0.04);
+  --card-shadow: 0 0 0 1px rgba(99, 102, 241, 0.06);
+  --card-shadow-hover: 0 8px 32px rgba(129, 140, 248, 0.08), 0 0 0 1px rgba(129, 140, 248, 0.15);
 }
 
 @theme inline {
@@ -57,27 +67,148 @@
   --color-destructive: var(--destructive);
   --color-success: var(--success);
   --color-warning: var(--warning);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-outfit), var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
+
+/* ─── Base ───────────────────────────────────────────────────── */
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Dot grid background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#app-root,
+main,
+header,
+footer,
+.fixed {
+  position: relative;
+  z-index: 1;
 }
 
 * {
   border-color: var(--border);
 }
 
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
+  background: var(--muted-foreground);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* ─── Utility classes ────────────────────────────────────────── */
+
+.glass {
+  background: color-mix(in srgb, var(--card) 75%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.glow-border {
+  box-shadow: var(--card-shadow);
+  transition: box-shadow 0.25s ease;
+}
+.glow-border:hover {
+  box-shadow: var(--card-shadow-hover);
+}
+
+.text-glow {
+  text-shadow: 0 0 20px var(--glow-primary);
+}
+
+.text-glow-success {
+  text-shadow: 0 0 20px var(--glow-success);
+}
+
+.font-data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Header gradient accent line */
+.header-accent {
+  position: relative;
+}
+.header-accent::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--primary), #a78bfa, var(--primary), transparent);
+  opacity: 0.5;
+}
+
+/* Select styling */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.25em 1.25em;
+  padding-right: 2rem;
+}
+
+/* Smooth transitions for theme change */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition: background-color 0.3s ease, color 0.15s ease, border-color 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+/* ─── Keyframes ──────────────────────────────────────────────── */
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out both;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, var(--muted) 25%, var(--card) 50%, var(--muted) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }
