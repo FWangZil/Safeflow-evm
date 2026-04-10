@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { chatCompletion, resolveLLMConfig, type LLMMessage } from '@/lib/llm';
 
 const EARN_API = 'https://earn.li.fi';
 
@@ -7,96 +8,55 @@ interface ChatRequest {
   history?: { role: string; content: string }[];
 }
 
+// ─── System Prompt for LLM Mode ─────────────────────────────
+
+const SYSTEM_PROMPT = `You are SafeFlow Yield Agent — an AI assistant that helps users manage DeFi yield strategies securely.
+
+You have access to real-time vault data that will be injected into the conversation. Your job is to:
+1. Understand the user's yield goals (risk tolerance, preferred tokens, chains, APY targets)
+2. Analyze the available vault data to find the best opportunities
+3. Explain your reasoning clearly, including risk considerations
+4. Guide users through the deposit process via SafeFlow's SessionCap security model
+
+Key concepts:
+- SafeFlow uses SessionCaps to limit AI agent spending (per-interval limits, total limits, expiry)
+- Deposits go through the SafeFlowVault contract which enforces these limits on-chain
+- Vault data comes from LI.FI Earn API (20+ protocols across EVM chains)
+
+When recommending vaults, always mention:
+- APY (total, base, reward breakdown if significant)
+- TVL (higher = generally safer)
+- Protocol name and chain
+- Risk factors (e.g. low TVL, new protocol, impermanent loss for LP vaults)
+
+Format your responses in Markdown. Be concise but informative.
+If the user asks something unrelated to DeFi yield, politely redirect them.
+
+IMPORTANT: When you identify that the user wants to search for vaults, include a JSON block at the end of your response wrapped in <tool_call> tags:
+<tool_call>{"action":"search_vaults","chainId":8453,"token":"USDC","tag":"stablecoin","minApy":5,"limit":5}</tool_call>
+
+Only include fields that the user explicitly mentioned. Valid fields:
+- action: "search_vaults" | "deposit" | "portfolio"
+- chainId: number (1=Ethereum, 8453=Base, 42161=Arbitrum, 10=Optimism, 137=Polygon)
+- token: string (USDC, ETH, WBTC, etc.)
+- tag: "stablecoin" | "blue-chip" | "lsd"
+- minApy: number
+- limit: number (default 5)`;
+
+// ─── Route Handler ──────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
   try {
     const body: ChatRequest = await req.json();
-    const { message } = body;
+    const { message, history } = body;
 
-    const intent = parseUserIntent(message);
+    const llmConfig = resolveLLMConfig();
 
-    if (intent.type === 'search_vaults') {
-      const params = new URLSearchParams();
-      if (intent.chainId) params.set('chainId', String(intent.chainId));
-      params.set('limit', '100');
-
-      const res = await fetch(`${EARN_API}/v1/earn/vaults?${params.toString()}`);
-      if (!res.ok) throw new Error(`Earn API: ${res.status}`);
-
-      const json = await res.json();
-      let vaults = json.data || json;
-
-      // Filter by intent
-      if (intent.tokenSymbol) {
-        vaults = vaults.filter((v: any) =>
-          v.underlyingTokens?.some((t: any) =>
-            t.symbol?.toLowerCase() === intent.tokenSymbol!.toLowerCase()
-          )
-        );
-      }
-      if (intent.tag) {
-        vaults = vaults.filter((v: any) => v.tags?.includes(intent.tag));
-      }
-      if (intent.minApy) {
-        vaults = vaults.filter((v: any) => (v.analytics?.apy?.total ?? 0) >= intent.minApy!);
-      }
-      if (intent.onlyTransactional !== false) {
-        vaults = vaults.filter((v: any) => v.isTransactional === true);
-      }
-
-      // Sort by APY descending
-      vaults.sort((a: any, b: any) => (b.analytics?.apy?.total ?? 0) - (a.analytics?.apy?.total ?? 0));
-
-      const topVaults = vaults.slice(0, intent.limit || 5);
-
-      if (topVaults.length === 0) {
-        return NextResponse.json({
-          message: "I couldn't find any vaults matching your criteria. Try broadening your search — for example, remove the chain filter or lower the minimum APY.",
-          vaults: [],
-        });
-      }
-
-      const summary = topVaults
-        .map((v: any, i: number) => {
-          const apy = v.analytics?.apy?.total?.toFixed(2) ?? 'N/A';
-          const tvl = formatTvlShort(v.analytics?.tvl?.usd);
-          const tokens = v.underlyingTokens?.map((t: any) => t.symbol).join('/') || '?';
-          return `${i + 1}. **${v.name}** (${v.protocol?.name}) — ${apy}% APY, ${tvl} TVL [${tokens} on ${v.network}]`;
-        })
-        .join('\n');
-
-      const filterDesc = [
-        intent.chainName && `on ${intent.chainName}`,
-        intent.tokenSymbol && `for ${intent.tokenSymbol}`,
-        intent.tag && `tagged "${intent.tag}"`,
-        intent.minApy && `with APY ≥ ${intent.minApy}%`,
-      ]
-        .filter(Boolean)
-        .join(', ');
-
-      return NextResponse.json({
-        message: `Here are the top ${topVaults.length} yield vaults${filterDesc ? ` ${filterDesc}` : ''}:\n\n${summary}\n\nClick on any vault to view details or start a deposit. Would you like me to help you deposit into any of these?`,
-        vaults: topVaults,
-      });
+    // If LLM is configured, use it for reasoning; otherwise fall back to rule-based
+    if (llmConfig) {
+      return handleWithLLM(message, history || [], llmConfig);
     }
-
-    if (intent.type === 'deposit') {
-      return NextResponse.json({
-        message: `To deposit${intent.tokenSymbol ? ` ${intent.tokenSymbol}` : ''}, I'll need to:\n\n1. Find the best vault matching your criteria\n2. Build the transaction via LI.FI Composer\n3. Submit it through your SafeFlow SessionCap for security\n\nPlease connect your wallet first, then select a vault from the Explorer or tell me more about what you're looking for.`,
-        action: { type: 'deposit', token: intent.tokenSymbol },
-      });
-    }
-
-    if (intent.type === 'portfolio') {
-      return NextResponse.json({
-        message: "To check your portfolio positions, please connect your wallet first. I'll then fetch your current yield positions from the LI.FI Earn API.\n\nYou can also navigate to the Portfolio tab to see a full breakdown.",
-        action: { type: 'info' },
-      });
-    }
-
-    // Default: general help
-    return NextResponse.json({
-      message: "I can help you with:\n\n• **Find vaults** — \"Show me stablecoin vaults on Base with APY > 5%\"\n• **Deposit** — \"Deposit 500 USDC into the best vault\"\n• **Portfolio** — \"Show my current positions\"\n• **Compare** — \"Compare USDC vaults on Arbitrum vs Base\"\n\nWhat would you like to do?",
-    });
+    return handleWithRules(message);
   } catch (error) {
     console.error('Agent chat error:', error);
     return NextResponse.json(
@@ -104,6 +64,189 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// ─── LLM-Powered Handler ────────────────────────────────────
+
+async function handleWithLLM(
+  message: string,
+  history: { role: string; content: string }[],
+  llmConfig: NonNullable<ReturnType<typeof resolveLLMConfig>>,
+) {
+  // Build message history for the LLM
+  const messages: LLMMessage[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+  ];
+
+  // Add conversation history (last 10 messages)
+  for (const msg of history.slice(-10)) {
+    if (msg.role === 'user' || msg.role === 'assistant') {
+      messages.push({ role: msg.role, content: msg.content });
+    }
+  }
+
+  messages.push({ role: 'user', content: message });
+
+  // Call LLM
+  const llmResponse = await chatCompletion(messages, llmConfig);
+  let responseText = llmResponse.content;
+
+  // Extract tool call if present
+  const toolCallMatch = responseText.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
+  let vaults: any[] = [];
+
+  if (toolCallMatch) {
+    // Remove tool_call from visible response
+    responseText = responseText.replace(/<tool_call>[\s\S]*?<\/tool_call>/, '').trim();
+
+    try {
+      const toolCall = JSON.parse(toolCallMatch[1]);
+
+      if (toolCall.action === 'search_vaults') {
+        vaults = await fetchAndFilterVaults(toolCall);
+
+        // Append vault summary to response if LLM didn't include it
+        if (vaults.length > 0 && !responseText.includes('APY')) {
+          const summary = vaults
+            .slice(0, toolCall.limit || 5)
+            .map((v: any, i: number) => {
+              const apy = v.analytics?.apy?.total?.toFixed(2) ?? 'N/A';
+              const tvl = formatTvlShort(v.analytics?.tvl?.usd);
+              const tokens = v.underlyingTokens?.map((t: any) => t.symbol).join('/') || '?';
+              return `${i + 1}. **${v.name}** (${v.protocol?.name}) — ${apy}% APY, ${tvl} TVL [${tokens} on ${v.network}]`;
+            })
+            .join('\n');
+          responseText += `\n\n${summary}`;
+        }
+      }
+
+      if (toolCall.action === 'portfolio') {
+        return NextResponse.json({
+          message: responseText,
+          action: { type: 'info' },
+        });
+      }
+
+      if (toolCall.action === 'deposit') {
+        return NextResponse.json({
+          message: responseText,
+          action: { type: 'deposit', token: toolCall.token },
+        });
+      }
+    } catch {
+      // Tool call parse failed — just return the text
+    }
+  }
+
+  return NextResponse.json({
+    message: responseText,
+    vaults: vaults.slice(0, 5),
+    provider: llmConfig.provider,
+    model: llmResponse.model,
+  });
+}
+
+// ─── Shared: Fetch & Filter Vaults ──────────────────────────
+
+async function fetchAndFilterVaults(params: {
+  chainId?: number;
+  token?: string;
+  tag?: string;
+  minApy?: number;
+  limit?: number;
+}): Promise<any[]> {
+  const qs = new URLSearchParams();
+  if (params.chainId) qs.set('chainId', String(params.chainId));
+  qs.set('limit', '100');
+
+  const res = await fetch(`${EARN_API}/v1/earn/vaults?${qs.toString()}`);
+  if (!res.ok) throw new Error(`Earn API: ${res.status}`);
+
+  const json = await res.json();
+  let vaults = json.data || json;
+
+  if (params.token) {
+    const sym = params.token.toUpperCase();
+    vaults = vaults.filter((v: any) =>
+      v.underlyingTokens?.some((t: any) => t.symbol?.toUpperCase() === sym)
+    );
+  }
+  if (params.tag) {
+    vaults = vaults.filter((v: any) => v.tags?.includes(params.tag));
+  }
+  if (params.minApy != null) {
+    vaults = vaults.filter((v: any) => (v.analytics?.apy?.total ?? 0) >= params.minApy!);
+  }
+  // Always filter to transactional vaults
+  vaults = vaults.filter((v: any) => v.isTransactional === true);
+
+  vaults.sort((a: any, b: any) => (b.analytics?.apy?.total ?? 0) - (a.analytics?.apy?.total ?? 0));
+
+  return vaults.slice(0, params.limit || 5);
+}
+
+// ─── Rule-Based Fallback Handler ────────────────────────────
+
+async function handleWithRules(message: string) {
+  const intent = parseUserIntent(message);
+
+  if (intent.type === 'search_vaults') {
+    const vaults = await fetchAndFilterVaults({
+      chainId: intent.chainId,
+      token: intent.tokenSymbol,
+      tag: intent.tag,
+      minApy: intent.minApy,
+      limit: intent.limit,
+    });
+
+    if (vaults.length === 0) {
+      return NextResponse.json({
+        message: "I couldn't find any vaults matching your criteria. Try broadening your search — for example, remove the chain filter or lower the minimum APY.",
+        vaults: [],
+      });
+    }
+
+    const summary = vaults
+      .map((v: any, i: number) => {
+        const apy = v.analytics?.apy?.total?.toFixed(2) ?? 'N/A';
+        const tvl = formatTvlShort(v.analytics?.tvl?.usd);
+        const tokens = v.underlyingTokens?.map((t: any) => t.symbol).join('/') || '?';
+        return `${i + 1}. **${v.name}** (${v.protocol?.name}) — ${apy}% APY, ${tvl} TVL [${tokens} on ${v.network}]`;
+      })
+      .join('\n');
+
+    const filterDesc = [
+      intent.chainName && `on ${intent.chainName}`,
+      intent.tokenSymbol && `for ${intent.tokenSymbol}`,
+      intent.tag && `tagged "${intent.tag}"`,
+      intent.minApy && `with APY ≥ ${intent.minApy}%`,
+    ]
+      .filter(Boolean)
+      .join(', ');
+
+    return NextResponse.json({
+      message: `Here are the top ${vaults.length} yield vaults${filterDesc ? ` ${filterDesc}` : ''}:\n\n${summary}\n\nClick on any vault to view details or start a deposit.`,
+      vaults,
+    });
+  }
+
+  if (intent.type === 'deposit') {
+    return NextResponse.json({
+      message: `To deposit${intent.tokenSymbol ? ` ${intent.tokenSymbol}` : ''}, I'll need to:\n\n1. Find the best vault matching your criteria\n2. Build the transaction via LI.FI Composer\n3. Submit it through your SafeFlow SessionCap for security\n\nPlease connect your wallet first, then select a vault from the Explorer or tell me more about what you're looking for.`,
+      action: { type: 'deposit', token: intent.tokenSymbol },
+    });
+  }
+
+  if (intent.type === 'portfolio') {
+    return NextResponse.json({
+      message: "To check your portfolio positions, please connect your wallet first. I'll then fetch your current yield positions from the LI.FI Earn API.\n\nYou can also navigate to the Portfolio tab to see a full breakdown.",
+      action: { type: 'info' },
+    });
+  }
+
+  return NextResponse.json({
+    message: "I can help you with:\n\n• **Find vaults** — \"Show me stablecoin vaults on Base with APY > 5%\"\n• **Deposit** — \"Deposit 500 USDC into the best vault\"\n• **Portfolio** — \"Show my current positions\"\n• **Compare** — \"Compare USDC vaults on Arbitrum vs Base\"\n\nWhat would you like to do?\n\n_💡 Tip: Set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in `.env.local` to enable AI-powered reasoning._",
+  });
 }
 
 // ─── Intent Parser ─────────────────────────────────────────
