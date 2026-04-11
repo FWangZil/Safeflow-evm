@@ -37,6 +37,7 @@
     "search": "Search vaults, protocols, tokens...",
     "allChains": "All Chains",
     "allTags": "All Tags",
+    "allProtocols": "All Protocols",
     "loading": "Loading vaults from LI.FI Earn API...",
     "noResults": "No vaults found matching your criteria.",
     "showing": "Showing {shown} of {total} vaults",

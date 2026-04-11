@@ -18,6 +18,7 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
   const [search, setSearch] = useState('');
   const [selectedChain, setSelectedChain] = useState<string>('all');
   const [selectedTag, setSelectedTag] = useState<string>('all');
+  const [selectedProtocol, setSelectedProtocol] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'apy' | 'tvl'>('apy');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const { t } = useTranslation();
@@ -38,6 +39,9 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
       if (selectedTag !== 'all') {
         filters.tag = selectedTag;
       }
+      if (selectedProtocol !== 'all') {
+        filters.protocol = selectedProtocol;
+      }
       const result = await fetchVaults(filters);
       setVaults(result.data);
     } catch (err) {
@@ -45,7 +49,7 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
     } finally {
       setLoading(false);
     }
-  }, [selectedChain, selectedTag, sortBy, sortOrder]);
+  }, [selectedChain, selectedTag, selectedProtocol, sortBy, sortOrder]);
 
   useEffect(() => {
     loadVaults();
@@ -107,6 +111,19 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
           <option value="stablecoin">Stablecoin</option>
           <option value="blue-chip">Blue Chip</option>
           <option value="lsd">LSD</option>
+        </select>
+
+        <select
+          value={selectedProtocol}
+          onChange={e => setSelectedProtocol(e.target.value)}
+          className="px-3 py-2 bg-input border border-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+        >
+          <option value="all">{t('explore.allProtocols')}</option>
+          <option value="morpho">Morpho</option>
+          <option value="aave">Aave V3</option>
+          <option value="euler">Euler V2</option>
+          <option value="pendle">Pendle</option>
+          <option value="fluid">Fluid</option>
         </select>
       </div>
 

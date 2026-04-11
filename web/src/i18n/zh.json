@@ -37,6 +37,7 @@
     "search": "搜索金库、协议、代币...",
     "allChains": "所有链",
     "allTags": "所有标签",
+    "allProtocols": "所有协议",
     "loading": "正在从 LI.FI Earn API 加载金库...",
     "noResults": "未找到符合条件的金库。",
     "showing": "显示 {shown} / {total} 个金库",
