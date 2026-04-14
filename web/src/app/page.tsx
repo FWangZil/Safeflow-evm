@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { Shield, TrendingUp, MessageSquare, BarChart3, Settings } from 'lucide-react';
+import { AlertTriangle, BarChart3, Globe2, MessageSquare, Settings, Shield, TrendingUp } from 'lucide-react';
 import VaultExplorer from '@/components/VaultExplorer';
 import ChatAgent from '@/components/ChatAgent';
 import DepositModal from '@/components/DepositModal';
@@ -11,6 +11,7 @@ import SessionManager from '@/components/SessionManager';
 import ThemeToggle from '@/components/ThemeToggle';
 import LangToggle from '@/components/LangToggle';
 import { useTranslation } from '@/i18n';
+import { getAppRuntimeMode } from '@/lib/chains';
 import type { EarnVault } from '@/types';
 
 type Tab = 'chat' | 'explore' | 'portfolio' | 'settings';
@@ -19,6 +20,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('chat');
   const [selectedVault, setSelectedVault] = useState<EarnVault | null>(null);
   const { t } = useTranslation();
+  const runtimeMode = getAppRuntimeMode();
 
   const handleSelectVault = (vault: EarnVault) => {
     setSelectedVault(vault);
@@ -30,6 +32,18 @@ export default function Home() {
     { id: 'portfolio', label: t('nav.portfolio'), icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'settings', label: t('nav.settings'), icon: <Settings className="w-4 h-4" /> },
   ];
+  const runtimeBadgeTitle = runtimeMode.isLocalFork
+    ? t('runtime.badgeTooltipLocal', {
+        executionChain: runtimeMode.executionChainName,
+        sourceChain: runtimeMode.sourceChainName,
+        rpcHost: runtimeMode.rpcHostLabel || t('common.na'),
+      })
+    : t('runtime.badgeTooltipBase', {
+        executionChain: runtimeMode.executionChainName,
+        sourceChain: runtimeMode.sourceChainName,
+      });
+  const runtimeBadgeLabel = runtimeMode.isLocalFork ? t('runtime.localBadge') : t('runtime.baseBadge');
+  const runtimeFooterLabel = runtimeMode.isLocalFork ? t('runtime.footerLocal') : t('runtime.footerBase');
 
   return (
     <div className="min-h-screen flex flex-col relative z-1">
@@ -68,6 +82,17 @@ export default function Home() {
 
             {/* Right controls */}
             <div className="flex items-center gap-1.5">
+              <div
+                title={runtimeBadgeTitle}
+                className={`hidden sm:inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[0.08em] uppercase backdrop-blur-md ${
+                  runtimeMode.isLocalFork
+                    ? 'border-amber-400/35 bg-amber-500/10 text-amber-200'
+                    : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                }`}
+              >
+                {runtimeMode.isLocalFork ? <AlertTriangle className="w-3.5 h-3.5" /> : <Globe2 className="w-3.5 h-3.5" />}
+                <span>{runtimeBadgeLabel}</span>
+              </div>
               <LangToggle />
               <ThemeToggle />
               <ConnectButton.Custom>
@@ -175,8 +200,14 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-border py-3 mt-auto relative z-1">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between text-[11px] text-muted-foreground/60">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col gap-1.5 text-[11px] text-muted-foreground/70 sm:flex-row sm:items-center sm:justify-between">
           <span>{t('footer.left')}</span>
+          <span
+            title={runtimeBadgeTitle}
+            className={runtimeMode.isLocalFork ? 'text-amber-300/90' : 'text-emerald-300/90'}
+          >
+            {runtimeFooterLabel}
+          </span>
           <span>{t('footer.right')}</span>
         </div>
       </footer>

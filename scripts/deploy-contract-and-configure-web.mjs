@@ -12,30 +12,43 @@ const ROOT_DIR = resolve(SCRIPT_DIR, '..');
 const CONTRACTS_DIR = join(ROOT_DIR, 'contracts');
 const WEB_ENV_PATH = join(ROOT_DIR, 'web', '.env');
 const MANIFESTS_DIR = join(ROOT_DIR, 'docs', 'deployments');
+const LOCAL_FORK_NETWORK = 'local_base_fork';
+const LOCAL_FORK_RPC_DEFAULT = 'http://127.0.0.1:8545';
+const LOCAL_FORK_NAME_DEFAULT = 'Base Fork Local';
+const BUILTIN_WALLET_CHAIN_IDS = new Set([1, 8453, 84532, 42161, 421614]);
 
 const NETWORKS = {
   base: {
+    kind: 'static',
     chainId: 8453,
     rpcEnvCandidates: ['BASE_RPC_URL', 'RPC_URL'],
   },
   base_sepolia: {
+    kind: 'static',
     chainId: 84532,
     rpcEnvCandidates: ['BASE_SEPOLIA_RPC_URL', 'RPC_URL'],
   },
   arbitrum_sepolia: {
+    kind: 'static',
     chainId: 421614,
     rpcEnvCandidates: ['ARBITRUM_SEPOLIA_RPC_URL', 'RPC_URL'],
+  },
+  [LOCAL_FORK_NETWORK]: {
+    kind: 'local-fork',
+    rpcEnvCandidates: ['NEXT_PUBLIC_LOCAL_FORK_RPC_URL', 'LOCAL_FORK_RPC_URL'],
+    defaultRpcUrl: LOCAL_FORK_RPC_DEFAULT,
   },
 };
 
 function printHelp() {
-  console.log(`Usage: node scripts/deploy-contract-and-configure-web.mjs [options]\n\nOptions:\n  --network <name>   Target network (${Object.keys(NETWORKS).join(', ')})\n  --force            Force redeploy even if a deployment already exists\n  --web-env <path>   Override web env file path\n  --help             Show this help\n`);
+  console.log(`Usage: node scripts/deploy-contract-and-configure-web.mjs [options]\n\nOptions:\n  --network <name>           Target network (${Object.keys(NETWORKS).join(', ')})\n  --force                    Force redeploy even if a deployment already exists\n  --web-env <path>           Override web env file path\n  --sync-local-fork-env      When deploying to local_base_fork, also sync NEXT_PUBLIC_LOCAL_FORK_* values into the web env file\n  --configure-local-fork     Alias for --sync-local-fork-env\n  --help                     Show this help\n`);
 }
 
 function parseArgs(argv) {
   const options = {
     network: process.env.SAFEFLOW_NETWORK || 'base_sepolia',
     force: false,
+    syncLocalForkEnv: false,
     webEnvPath: WEB_ENV_PATH,
   };
 
@@ -47,6 +60,10 @@ function parseArgs(argv) {
     }
     if (arg === '--force') {
       options.force = true;
+      continue;
+    }
+    if (arg === '--sync-local-fork-env' || arg === '--configure-local-fork') {
+      options.syncLocalForkEnv = true;
       continue;
     }
     if (arg === '--network') {
@@ -77,12 +94,61 @@ function requireNetworkConfig(network) {
   return config;
 }
 
-function resolveRpcConfig(network) {
-  const networkConfig = requireNetworkConfig(network);
+function parseIntegerEnv(name, fallbackValue) {
+  const rawValue = process.env[name];
+  if (!rawValue) return fallbackValue;
+
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid ${name}: expected a positive integer, received ${rawValue}`);
+  }
+
+  return parsed;
+}
+
+function resolveLocalForkConfig(networkConfig) {
+  const chainId = parseIntegerEnv('NEXT_PUBLIC_LOCAL_FORK_CHAIN_ID', 31337);
+  const sourceChainId = parseIntegerEnv('NEXT_PUBLIC_LOCAL_FORK_SOURCE_CHAIN_ID', 8453);
+
+  if (BUILTIN_WALLET_CHAIN_IDS.has(chainId)) {
+    throw new Error(
+      `NEXT_PUBLIC_LOCAL_FORK_CHAIN_ID=${chainId} conflicts with a built-in wallet chain. Use a dedicated local chain id such as 31337.`,
+    );
+  }
+
+  let rpcUrl = networkConfig.defaultRpcUrl;
+  let rpcEnvName = 'default:localhost';
+
   for (const envName of networkConfig.rpcEnvCandidates) {
     const value = process.env[envName];
     if (value) {
-      return { rpcUrl: value, rpcEnvName: envName, chainId: networkConfig.chainId };
+      rpcUrl = value;
+      rpcEnvName = envName;
+      break;
+    }
+  }
+
+  return {
+    rpcUrl,
+    rpcEnvName,
+    chainId,
+    sourceChainId,
+    chainName: process.env.NEXT_PUBLIC_LOCAL_FORK_NAME || LOCAL_FORK_NAME_DEFAULT,
+    explorerUrl: process.env.NEXT_PUBLIC_LOCAL_FORK_EXPLORER_URL || '',
+    isLocalFork: true,
+  };
+}
+
+function resolveRpcConfig(network) {
+  const networkConfig = requireNetworkConfig(network);
+  if (networkConfig.kind === 'local-fork') {
+    return resolveLocalForkConfig(networkConfig);
+  }
+
+  for (const envName of networkConfig.rpcEnvCandidates) {
+    const value = process.env[envName];
+    if (value) {
+      return { rpcUrl: value, rpcEnvName: envName, chainId: networkConfig.chainId, isLocalFork: false };
     }
   }
   throw new Error(`Missing RPC URL for ${network}. Set one of ${networkConfig.rpcEnvCandidates.join(', ')}`);
@@ -126,6 +192,30 @@ function parseEnvValue(content, key) {
   const pattern = new RegExp(`^${key}=(.*)$`, 'm');
   const match = content.match(pattern);
   return match ? match[1].trim() : null;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildEnvFileContent(existing, updates) {
+  let nextContent = existing;
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (value == null) continue;
+
+    const line = `${key}=${value}`;
+    const pattern = new RegExp(`^${escapeRegExp(key)}=.*$`, 'm');
+
+    if (pattern.test(nextContent)) {
+      nextContent = nextContent.replace(pattern, line);
+      continue;
+    }
+
+    nextContent = `${nextContent.replace(/\s*$/, '\n')}${line}\n`;
+  }
+
+  return nextContent || '';
 }
 
 async function fetchContractCode(rpcUrl, address) {
@@ -267,20 +357,21 @@ async function runForgeDeploy(rpcUrl) {
   });
 }
 
-async function updateWebEnv(webEnvPath, address) {
+async function updateWebEnv(webEnvPath, updates) {
   const existing = await readTextFile(webEnvPath);
-  const line = `NEXT_PUBLIC_SAFEFLOW_CONTRACT=${address}`;
-
-  let nextContent;
-  if (!existing) {
-    nextContent = `${line}\n`;
-  } else if (/^NEXT_PUBLIC_SAFEFLOW_CONTRACT=.*$/m.test(existing)) {
-    nextContent = existing.replace(/^NEXT_PUBLIC_SAFEFLOW_CONTRACT=.*$/m, line);
-  } else {
-    nextContent = `${existing.replace(/\s*$/, '\n')}${line}\n`;
-  }
-
+  const nextContent = buildEnvFileContent(existing, updates);
   await writeFile(webEnvPath, nextContent, 'utf8');
+}
+
+function buildLocalForkEnvUpdates(networkRuntime) {
+  return {
+    NEXT_PUBLIC_LOCAL_FORK_ENABLED: 'true',
+    NEXT_PUBLIC_LOCAL_FORK_CHAIN_ID: String(networkRuntime.chainId),
+    NEXT_PUBLIC_LOCAL_FORK_SOURCE_CHAIN_ID: String(networkRuntime.sourceChainId),
+    NEXT_PUBLIC_LOCAL_FORK_RPC_URL: networkRuntime.rpcUrl,
+    NEXT_PUBLIC_LOCAL_FORK_NAME: networkRuntime.chainName,
+    NEXT_PUBLIC_LOCAL_FORK_EXPLORER_URL: networkRuntime.explorerUrl,
+  };
 }
 
 function toFileTimestamp(isoString) {
@@ -307,7 +398,12 @@ async function main() {
     return;
   }
 
-  const { rpcUrl, rpcEnvName, chainId } = resolveRpcConfig(options.network);
+  if (options.syncLocalForkEnv && options.network !== LOCAL_FORK_NETWORK) {
+    throw new Error('--sync-local-fork-env is only supported with --network local_base_fork');
+  }
+
+  const networkRuntime = resolveRpcConfig(options.network);
+  const { rpcUrl, rpcEnvName, chainId } = networkRuntime;
   const existing = options.force ? null : await resolveExistingDeployment(options.network, rpcUrl, options.webEnvPath);
 
   let address;
@@ -334,7 +430,12 @@ async function main() {
     throw new Error(`No contract code found at ${address} on ${options.network}`);
   }
 
-  await updateWebEnv(options.webEnvPath, address);
+  const webEnvUpdates = {
+    NEXT_PUBLIC_SAFEFLOW_CONTRACT: address,
+    ...(options.syncLocalForkEnv && networkRuntime.isLocalFork ? buildLocalForkEnvUpdates(networkRuntime) : {}),
+  };
+
+  await updateWebEnv(options.webEnvPath, webEnvUpdates);
 
   const record = {
     timestamp: new Date().toISOString(),
@@ -347,11 +448,23 @@ async function main() {
       SafeFlowVault: address,
     },
     webEnvFile: options.webEnvPath,
-    webEnv: {
-      NEXT_PUBLIC_SAFEFLOW_CONTRACT: address,
-    },
+    webEnv: webEnvUpdates,
     source,
     sourcePath,
+    ...(networkRuntime.isLocalFork
+      ? {
+          runtime: {
+            mode: LOCAL_FORK_NETWORK,
+            executionChainId: chainId,
+            sourceChainId: networkRuntime.sourceChainId,
+            executionChainName: networkRuntime.chainName,
+            rpcUrl: networkRuntime.rpcUrl,
+            rpcEnvName,
+            explorerUrl: networkRuntime.explorerUrl || null,
+            webEnvSynchronized: options.syncLocalForkEnv,
+          },
+        }
+      : {}),
   };
 
   const { historyPath, latestPath } = await writeDeploymentRecords(record);
@@ -360,6 +473,9 @@ async function main() {
   console.log(`Web env updated: ${options.webEnvPath}`);
   console.log(`Deployment record: ${historyPath}`);
   console.log(`Latest record: ${latestPath}`);
+  if (networkRuntime.isLocalFork) {
+    console.log(`Local fork runtime sync: ${options.syncLocalForkEnv ? 'enabled' : 'skipped'}`);
+  }
   console.log('');
   console.log('You can now start the web app with:');
   console.log('  npm run dev');

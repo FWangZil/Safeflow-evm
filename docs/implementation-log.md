@@ -166,6 +166,53 @@ See full details: [`docs/frontend-network-runtime-notes.md`](./frontend-network-
 
 ---
 
+## Session 3: Local Fork Deploy Workflow & Runtime Badge (Apr 15)
+
+### Summary
+
+Completed the next two local-fork follow-ups so the developer workflow and page-level runtime visibility now match the frontend execution model.
+
+### Completed
+
+1. **Added `local_base_fork` deployment support** — `scripts/deploy-contract-and-configure-web.mjs` now treats the local Base fork as a first-class target and can optionally sync the full `NEXT_PUBLIC_LOCAL_FORK_*` env bundle with an explicit flag.
+
+2. **Added a visible runtime badge** — The app shell now exposes `Base Mainnet` vs `Base Fork Local` in both the header and footer using the shared runtime helper from `web/src/lib/chains.ts`.
+
+### Key File Changes
+
+- `scripts/deploy-contract-and-configure-web.mjs`
+- `web/src/app/page.tsx`
+- `web/src/lib/chains.ts`
+- `web/src/i18n/en.json`
+- `web/src/i18n/zh.json`
+- `web/.env.example`
+- `docs/frontend-network-runtime-notes.md`
+
+### Validation
+
+- Targeted ESLint passes for the touched frontend runtime files.
+- The deploy helper now exposes a documented `local_base_fork` flow for contract-only updates and explicit local runtime env synchronization.
+
+---
+
+## Session 4: Shared Chain Switching Utility (Apr 15)
+
+### Summary
+
+Refactored the wallet network mutation path into a reusable frontend hook so the local fork runtime behavior can be reused outside the deposit modal.
+
+### Completed
+
+1. **Extracted switch/add chain logic** — Added `web/src/lib/useSwitchOrAddChain.ts` to own `useSwitchChain()` calls, `wallet_addEthereumChain` fallback behavior, and standardized error handling.
+
+2. **Simplified DepositModal** — `web/src/components/DepositModal.tsx` now consumes the shared hook instead of embedding wallet network mutation logic directly.
+
+### Validation
+
+- Targeted ESLint passes for `DepositModal.tsx` and the new hook.
+
+---
+
 ## Next Steps (Day 2)
 
 1. Connect Settings page to contract via wagmi `useWriteContract`

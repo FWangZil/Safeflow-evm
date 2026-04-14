@@ -85,6 +85,14 @@
     "left": "SafeFlow Yield Agent — DeFi Mullet Hackathon #1 • Track 2: AI × Earn",
     "right": "Powered by LI.FI Earn API"
   },
+  "runtime": {
+    "localBadge": "Base Fork Local",
+    "baseBadge": "Base Mainnet",
+    "footerLocal": "Runtime: Local Base Fork",
+    "footerBase": "Runtime: Base Mainnet",
+    "badgeTooltipLocal": "Execution: {executionChain} · Source: {sourceChain} · RPC: {rpcHost}",
+    "badgeTooltipBase": "Execution: {executionChain} · Source: {sourceChain}"
+  },
   "common": {
     "na": "N/A"
   }

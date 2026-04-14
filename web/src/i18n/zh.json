@@ -85,6 +85,14 @@
     "left": "SafeFlow 收益代理 — DeFi Mullet 黑客松 #1 • 赛道 2: AI × Earn",
     "right": "由 LI.FI Earn API 提供支持"
   },
+  "runtime": {
+    "localBadge": "本地 Base 分叉",
+    "baseBadge": "Base 主网",
+    "footerLocal": "运行时：本地 Base 分叉",
+    "footerBase": "运行时：Base 主网",
+    "badgeTooltipLocal": "执行链：{executionChain} · 来源链：{sourceChain} · RPC：{rpcHost}",
+    "badgeTooltipBase": "执行链：{executionChain} · 来源链：{sourceChain}"
+  },
   "common": {
     "na": "不适用"
   }

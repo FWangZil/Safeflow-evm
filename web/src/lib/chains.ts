@@ -18,7 +18,10 @@ export const LOCAL_FORK_CONFIG_ERROR = localForkRequested && localForkChainIdCon
   : null;
 
 export const LOCAL_FORK_ENABLED = localForkRequested && !localForkChainIdConflicts;
+export const LOCAL_FORK_CHAIN_ID = localForkChainId;
 export const LOCAL_FORK_SOURCE_CHAIN_ID = localForkSourceChainId;
+export const LOCAL_FORK_NAME = localForkName;
+export const LOCAL_FORK_RPC_URL = localForkRpcUrl;
 
 export const localBaseForkChain = defineChain({
   id: localForkChainId,
@@ -72,4 +75,26 @@ export function getChainExplorerTxUrl(chainId: number, txHash?: `0x${string}`): 
   if (!explorerUrl) return null;
 
   return `${explorerUrl.replace(/\/$/, '')}/tx/${txHash}`;
+}
+
+function getRpcHostLabel(rpcUrl: string): string {
+  try {
+    return new URL(rpcUrl).host;
+  } catch {
+    return rpcUrl;
+  }
+}
+
+export function getAppRuntimeMode() {
+  const executionChain = LOCAL_FORK_ENABLED ? localBaseForkChain : base;
+  const sourceChain = getSupportedWalletChain(LOCAL_FORK_SOURCE_CHAIN_ID) || base;
+
+  return {
+    isLocalFork: LOCAL_FORK_ENABLED,
+    executionChainId: executionChain.id,
+    executionChainName: executionChain.name,
+    sourceChainId: sourceChain.id,
+    sourceChainName: sourceChain.name,
+    rpcHostLabel: LOCAL_FORK_ENABLED ? getRpcHostLabel(LOCAL_FORK_RPC_URL) : null,
+  };
 }

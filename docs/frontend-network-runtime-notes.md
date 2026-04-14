@@ -101,14 +101,62 @@ The UI can keep showing Base vaults while executing against a local fork network
 
 ---
 
+### 4. Added `local_base_fork` deploy/configure workflow
+
+**Problem**
+
+The frontend runtime could already execute against localhost, but the deployment helper script still only treated public/test networks as first-class targets.
+
+**Fix**
+
+`scripts/deploy-contract-and-configure-web.mjs` now supports `--network local_base_fork`.
+
+It provides two modes:
+
+- Default mode: deploy or reuse the contract and only update `NEXT_PUBLIC_SAFEFLOW_CONTRACT`.
+- Sync mode: when `--sync-local-fork-env` is passed, also write the full `NEXT_PUBLIC_LOCAL_FORK_*` runtime bundle into the selected web env file.
+
+The script also records local fork deployment metadata separately under `docs/deployments/latest.local_base_fork.json`, including execution-chain identity and whether runtime env synchronization was requested.
+
+**Result**
+
+Local fork deployment/configuration is now a first-class workflow instead of a manual follow-up step.
+
+---
+
+### 5. Added a visible runtime badge for Base vs local fork
+
+**Problem**
+
+Even after splitting source chain from execution chain, operators could still lose track of whether the app was currently pointed at public Base or a local Base fork.
+
+**Fix**
+
+The page shell now reads runtime state from `web/src/lib/chains.ts` and renders:
+
+- A header status chip on `sm+` breakpoints.
+- A footer runtime label across all breakpoints.
+
+Both states distinguish `Base Mainnet` from `Base Fork Local`, and the local mode exposes the RPC host in a native tooltip.
+
+**Result**
+
+The current runtime mode is now obvious during demos, QA, and local testing.
+
+---
+
 ## Current File Changes
 
 ### Updated files
 
 - `web/src/app/globals.css`
+- `web/src/app/page.tsx`
 - `web/src/app/providers.tsx`
 - `web/src/components/DepositModal.tsx`
+- `web/src/i18n/en.json`
+- `web/src/i18n/zh.json`
 - `web/.env.example`
+- `scripts/deploy-contract-and-configure-web.mjs`
 
 ### New file
 
@@ -135,6 +183,20 @@ NEXT_PUBLIC_LOCAL_FORK_EXPLORER_URL=
 ```
 
 If you do not run a local block explorer, the field can stay empty.
+
+### Deployment helper usage
+
+Contract-only update:
+
+```bash
+node scripts/deploy-contract-and-configure-web.mjs --network local_base_fork
+```
+
+Contract update plus full local runtime env sync:
+
+```bash
+node scripts/deploy-contract-and-configure-web.mjs --network local_base_fork --sync-local-fork-env
+```
 
 ---
 
@@ -193,7 +255,7 @@ This means:
 The changed frontend files were checked directly with:
 
 ```bash
-npx eslint src/app/providers.tsx src/components/DepositModal.tsx src/lib/chains.ts
+npx eslint src/app/page.tsx src/app/providers.tsx src/components/DepositModal.tsx src/lib/chains.ts
 ```
 
 Status:
@@ -201,120 +263,29 @@ Status:
 - The files touched by this work pass ESLint.
 - The repository still contains unrelated historical lint issues outside the scope of this change.
 
----
+The deploy helper can also be smoke-tested without mutating your main env file by passing a disposable env path:
 
-## Follow-up Options
-
-The following follow-up choices are available next.
-
-### Option A: Add `local_base_fork` support to the deploy/configure script
-
-**Goal**
-
-Extend `scripts/deploy-contract-and-configure-web.mjs` so the deployment/configuration workflow can explicitly target the local fork runtime instead of only public/test networks.
-
-**Why it matters**
-
-Right now the frontend can connect to the local fork, but the deployment helper script does not yet have a first-class network preset for local Base fork testing.
-
-**What this would likely include**
-
-- Add a dedicated local fork network entry such as `local_base_fork`.
-- Point it at localhost RPC.
-- Allow writing the correct frontend env values for local testing.
-- Keep deployment metadata consistent with the actual local execution chain.
-
-**Pros**
-
-- Better local developer ergonomics.
-- Fewer manual env edits.
-- Reduces the chance of using the wrong contract address or wrong runtime assumptions.
-
-**Cons**
-
-- Requires careful handling so local artifacts do not get mixed with public deployment records.
-
-**Recommendation**
-
-Recommended as the next engineering step if local fork testing will continue to be part of the daily workflow.
+```bash
+node scripts/deploy-contract-and-configure-web.mjs --network local_base_fork --web-env web/.env.localfork
+node scripts/deploy-contract-and-configure-web.mjs --network local_base_fork --sync-local-fork-env --web-env web/.env.localfork
+```
 
 ---
 
-### Option B: Add a visible UI badge for `Real Base` vs `Local Base Fork`
+## Reusable Chain Switching
 
-**Goal**
+The switch-chain / add-chain flow has now been extracted into a shared frontend hook:
 
-Expose the current runtime mode directly in the UI so the user can instantly see whether the app is pointing at public Base or at a local fork.
+- `web/src/lib/useSwitchOrAddChain.ts`
 
-**Why it matters**
+It centralizes:
 
-Even after solving chain id conflicts, users can still make mistakes if the runtime mode is not visually obvious.
+- `wagmi` switch-chain execution
+- `wallet_addEthereumChain` fallback
+- standardized unsupported-network handling
+- standardized wallet-rejection messaging
 
-**What this would likely include**
-
-- A header badge or status chip.
-- Distinct labeling such as `Base Mainnet` vs `Base Fork Local`.
-- Optional color treatment or warning tone for local mode.
-- Possibly surfacing the active RPC host in a compact tooltip.
-
-**Pros**
-
-- Lower operational risk.
-- Better demo clarity.
-- Easier debugging during testing.
-
-**Cons**
-
-- Small additional UI work.
-- Requires careful wording so the badge is obvious but not distracting.
-
-**Recommendation**
-
-Strongly recommended once local fork becomes a repeated testing mode, especially before demos or shared QA sessions.
-
----
-
-### Option C: Extract chain switching into a reusable frontend utility
-
-**Goal**
-
-Move the switch-chain / add-chain flow out of `DepositModal` into a shared hook or utility so other flows can reuse the same behavior.
-
-**Why it matters**
-
-The current implementation is correct, but the logic is still localized to the deposit modal.
-
-**What this would likely include**
-
-- Shared helper or hook for `switch or add chain`.
-- Reuse from future withdraw, portfolio, settings, or chat-triggered actions.
-- Standardized wallet rejection and unsupported-network messaging.
-
-**Pros**
-
-- Less duplication.
-- Cleaner component logic.
-- More consistent UX across flows.
-
-**Cons**
-
-- Slight refactor cost now.
-
-**Recommendation**
-
-Worth doing after the local testing workflow is stable.
-
----
-
-## Recommended Selection Order
-
-If choosing only one follow-up immediately:
-
-1. **Option A** — local deploy/configure script support
-2. **Option B** — visible runtime badge
-3. **Option C** — shared switch-chain utility
-
-This order prioritizes correctness of the developer workflow first, then operator clarity, then cleanup/refactoring.
+`web/src/components/DepositModal.tsx` now consumes this hook instead of owning the wallet network mutation logic directly.
 
 ---
 
@@ -325,12 +296,13 @@ This order prioritizes correctness of the developer workflow first, then operato
 - Fix modal overlay centering.
 - Replace passive wrong-chain warning with actionable wallet switching.
 - Support local Base fork as a distinct execution chain in frontend runtime.
+- Add `local_base_fork` support to the deploy/configure helper script.
+- Add a visible UI runtime badge for `Base Mainnet` vs `Base Fork Local`.
+- Extract chain switching into a reusable frontend hook.
 
 ### Not implemented yet
 
-- Script-level `local_base_fork` deployment workflow.
-- UI runtime badge for local vs real Base.
-- Shared reusable chain-switch abstraction.
+- No additional local-fork runtime follow-up is currently required for correctness.
 
 ---
 
@@ -341,5 +313,7 @@ The frontend now:
 - Opens vault deposit modals correctly as centered overlays.
 - Helps the wallet switch/add the target chain instead of only showing a reminder.
 - Supports localhost Base fork testing safely by separating Base source-chain semantics from local execution-chain behavior.
+- Exposes the current runtime mode directly in the app shell.
+- Can deploy/configure the local fork workflow through the helper script instead of manual env editing.
 
 This removes the wallet conflict with real Base as long as the local fork uses a dedicated chain id such as `31337`.

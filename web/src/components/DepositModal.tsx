@@ -2,12 +2,13 @@
 
 import { useState, useCallback } from 'react';
 import { X, Loader2, CheckCircle, ExternalLink, AlertTriangle, Coins, Shield } from 'lucide-react';
-import { useAccount, usePublicClient, useReadContract, useSwitchChain, useWriteContract } from 'wagmi';
+import { useAccount, usePublicClient, useReadContract, useWriteContract } from 'wagmi';
 import { keccak256, parseUnits, stringToHex } from 'viem';
 import type { EarnVault, ComposerQuote } from '@/types';
 import { formatTvl } from '@/lib/earn-api';
 import { getChainExplorerTxUrl, getExecutionChainDisplayName, getExecutionChainId, getSupportedWalletChain } from '@/lib/chains';
 import { ERC20_ABI, getSafeFlowAddress, SAFEFLOW_VAULT_ABI } from '@/lib/contracts';
+import { useSwitchOrAddChain } from '@/lib/useSwitchOrAddChain';
 import { useTranslation } from '@/i18n';
 
 interface DepositModalProps {
@@ -26,11 +27,9 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
   const [step, setStep] = useState<DepositStep>('input');
   const [quote, setQuote] = useState<ComposerQuote | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [switchError, setSwitchError] = useState<string | null>(null);
   const [progressLabel, setProgressLabel] = useState('');
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
 
-  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
   const { writeContractAsync } = useWriteContract();
 
   const underlyingToken = vault.underlyingTokens?.[0];
@@ -39,6 +38,7 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
   const executionChainId = getExecutionChainId(vault.chainId);
   const executionChainName = getExecutionChainDisplayName(vault.network, vault.chainId);
   const targetChain = getSupportedWalletChain(executionChainId);
+  const { isSwitchingChain, switchError, switchOrAddChain } = useSwitchOrAddChain(targetChain, executionChainId);
   const publicClient = usePublicClient({ chainId: executionChainId });
   const safeFlowAddress = (() => {
     try {
@@ -128,64 +128,6 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
       setStep('error');
     }
   }, [address, amount, capData, safeFlowAddress, tokenDecimals, underlyingToken, vault, walletId]);
-
-  const switchToVaultChain = useCallback(async () => {
-    if (!targetChain) {
-      setSwitchError(`Unsupported execution chain ${executionChainId}.`);
-      return;
-    }
-
-    setSwitchError(null);
-
-    try {
-      await switchChainAsync({ chainId: targetChain.id });
-    } catch (err) {
-      const provider = typeof window !== 'undefined'
-        ? (window as Window & {
-            ethereum?: {
-              request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-            };
-          }).ethereum
-        : undefined;
-
-      const errorCode = typeof err === 'object' && err !== null && 'code' in err
-        ? (err as { code?: number | string }).code
-        : undefined;
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      const shouldTryAddChain = errorCode === 4902 || /unrecognized chain|unknown chain|not added/i.test(errorMessage);
-
-      if (provider && shouldTryAddChain) {
-        try {
-          await provider.request({
-            method: 'wallet_addEthereumChain',
-            params: [{
-              chainId: `0x${targetChain.id.toString(16)}`,
-              chainName: targetChain.name,
-              nativeCurrency: targetChain.nativeCurrency,
-              rpcUrls: targetChain.rpcUrls.default.http,
-              blockExplorerUrls: targetChain.blockExplorers?.default?.url
-                ? [targetChain.blockExplorers.default.url]
-                : undefined,
-            }],
-          });
-
-          await switchChainAsync({ chainId: targetChain.id });
-          return;
-        } catch (addChainError) {
-          const addChainMessage = addChainError instanceof Error ? addChainError.message : String(addChainError);
-          setSwitchError(addChainMessage);
-          return;
-        }
-      }
-
-      if (/user rejected|denied|cancelled|canceled/i.test(errorMessage)) {
-        setSwitchError('Network switch was cancelled in your wallet.');
-        return;
-      }
-
-      setSwitchError(errorMessage);
-    }
-  }, [executionChainId, switchChainAsync, targetChain]);
 
   const executeDeposit = useCallback(async () => {
     if (!quote?.transactionRequest || !safeFlowAddress || !underlyingToken || !publicClient || !address) return;
@@ -420,7 +362,7 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
               </div>
             )}
             <button
-              onClick={switchToVaultChain}
+              onClick={switchOrAddChain}
               disabled={isSwitchingChain || !targetChain}
               className="w-full px-4 py-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity shadow-lg shadow-primary/20 disabled:opacity-30 disabled:cursor-not-allowed"
             >
