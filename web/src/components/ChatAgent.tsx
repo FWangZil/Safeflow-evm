@@ -1,22 +1,31 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useAccount } from 'wagmi';
 import { Send, Bot, User, Sparkles, Loader2, ArrowRight, Zap, TrendingUp, Shield } from 'lucide-react';
 import type { ChatMessage, EarnVault } from '@/types';
 import { formatApy, formatTvl } from '@/lib/earn-api';
 import { useTranslation } from '@/i18n';
+import { useSafeFlowResources } from '@/lib/safeflow-resources';
 
 interface ChatAgentProps {
   onSelectVault?: (vault: EarnVault) => void;
+  onOpenSettings?: () => void;
 }
 
-export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
+export default function ChatAgent({ onSelectVault, onOpenSettings }: ChatAgentProps) {
   const { t } = useTranslation();
+  const { isConnected } = useAccount();
+  const { currentWallets, currentAgentCaps, isHydrated } = useSafeFlowResources();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const needsWalletSetup = isConnected && isHydrated && currentWallets.length === 0;
+  const needsCapSetup = isConnected && isHydrated && currentWallets.length > 0 && currentAgentCaps.length === 0;
+  const showSetupCard = needsWalletSetup || needsCapSetup;
+  const showReadyCard = isConnected && isHydrated && !needsWalletSetup && !needsCapSetup;
 
   const QUICK_PROMPTS = [
     { icon: <TrendingUp className="w-4 h-4" />, text: t('chat.quickPrompts.stablecoin') },
@@ -104,10 +113,45 @@ export default function ChatAgent({ onSelectVault }: ChatAgentProps) {
               <Sparkles className="w-6 h-6 text-primary" />
             </div>
             <h3 className="text-lg font-bold mb-1">{t('chat.welcomeTitle')}</h3>
-            <p className="text-sm text-muted-foreground text-center max-w-sm mb-8 leading-relaxed">
+            <p className="text-sm text-muted-foreground text-center max-w-xl mb-6 leading-relaxed text-balance">
               {t('chat.welcomeSubtitle')}
             </p>
-            <div className="w-full max-w-md space-y-2.5">
+
+            {(showSetupCard || showReadyCard) && (
+              <div className={`w-full max-w-3xl rounded-[1.6rem] border p-4 mb-6 ${showSetupCard ? 'border-amber-400/20 bg-amber-500/10 shadow-[0_20px_60px_-36px_rgba(245,158,11,0.5)]' : 'border-emerald-400/20 bg-emerald-500/10 shadow-[0_20px_60px_-36px_rgba(16,185,129,0.45)]'}`}>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-1.5">
+                    <div className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${showSetupCard ? 'text-amber-200' : 'text-emerald-200'}`}>
+                      {t('chat.setupEyebrow')}
+                    </div>
+                    <div className="text-sm font-semibold tracking-tight">
+                      {needsWalletSetup
+                        ? t('chat.setupWalletTitle')
+                        : needsCapSetup
+                          ? t('chat.setupCapTitle')
+                          : t('chat.setupReadyTitle')}
+                    </div>
+                    <p className="max-w-[64ch] text-xs leading-relaxed text-muted-foreground">
+                      {needsWalletSetup
+                        ? t('chat.setupWalletDescription')
+                        : needsCapSetup
+                          ? t('chat.setupCapDescription')
+                          : t('chat.setupReadyDescription')}
+                    </p>
+                  </div>
+                  {showSetupCard && onOpenSettings && (
+                    <button
+                      onClick={onOpenSettings}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 active:translate-y-[1px]"
+                    >
+                      {t('chat.openSettingsCta')}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="w-full max-w-3xl space-y-2.5">
               {QUICK_PROMPTS.map((prompt, i) => (
                 <button
                   key={i}

@@ -23,10 +23,10 @@ export default function Home() {
   const [selectedVault, setSelectedVault] = useState<EarnVault | null>(null);
   const { t } = useTranslation();
   const { isConnected } = useAccount();
-  const { currentWallets, currentAgentCaps } = useSafeFlowResources();
+  const { currentWallets, currentAgentCaps, isHydrated } = useSafeFlowResources();
   const runtimeMode = getAppRuntimeMode();
-  const needsWalletSetup = isConnected && currentWallets.length === 0;
-  const needsCapSetup = isConnected && currentWallets.length > 0 && currentAgentCaps.length === 0;
+  const needsWalletSetup = isConnected && isHydrated && currentWallets.length === 0;
+  const needsCapSetup = isConnected && isHydrated && currentWallets.length > 0 && currentAgentCaps.length === 0;
   const showSetupBanner = activeTab !== 'settings' && (needsWalletSetup || needsCapSetup);
 
   const handleSelectVault = (vault: EarnVault) => {
@@ -188,7 +188,7 @@ export default function Home() {
 
         {activeTab === 'chat' && (
           <div className="max-w-4xl mx-auto w-full animate-fade-in-up">
-            <ChatAgent onSelectVault={handleSelectVault} />
+            <ChatAgent onSelectVault={handleSelectVault} onOpenSettings={() => setActiveTab('settings')} />
           </div>
         )}
 
@@ -200,7 +200,11 @@ export default function Home() {
                 {t('explore.subtitle')}
               </p>
             </div>
-            <VaultExplorer onSelectVault={handleSelectVault} />
+            <VaultExplorer
+              onSelectVault={handleSelectVault}
+              onOpenChat={() => setActiveTab('chat')}
+              onOpenSettings={() => setActiveTab('settings')}
+            />
           </div>
         )}
 

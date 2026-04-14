@@ -36,7 +36,11 @@ yarn-error.log*
 *.sqlite3
 data/
 
+# Deployments
+docs/deployments/
+
 # Misc
 *.tsbuildinfo
 .history/
 .specstory/
+graphify-out/

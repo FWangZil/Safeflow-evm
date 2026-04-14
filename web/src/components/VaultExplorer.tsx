@@ -1,17 +1,23 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAccount } from 'wagmi';
 import { Search, ArrowUpDown, Coins, TrendingUp } from 'lucide-react';
 import type { EarnVault } from '@/types';
 import { CHAIN_IDS } from '@/types';
 import { fetchVaults, formatApy, formatTvl, type VaultFilters } from '@/lib/earn-api';
 import { useTranslation } from '@/i18n';
+import { useSafeFlowResources } from '@/lib/safeflow-resources';
 
 interface VaultExplorerProps {
   onSelectVault?: (vault: EarnVault) => void;
+  onOpenChat?: () => void;
+  onOpenSettings?: () => void;
 }
 
-export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
+export default function VaultExplorer({ onSelectVault, onOpenChat, onOpenSettings }: VaultExplorerProps) {
+  const { isConnected } = useAccount();
+  const { currentWallets, currentAgentCaps, isHydrated } = useSafeFlowResources();
   const [vaults, setVaults] = useState<EarnVault[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +28,10 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
   const [sortBy, setSortBy] = useState<'apy' | 'tvl'>('apy');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const { t } = useTranslation();
+  const needsWalletSetup = isConnected && isHydrated && currentWallets.length === 0;
+  const needsCapSetup = isConnected && isHydrated && currentWallets.length > 0 && currentAgentCaps.length === 0;
+  const hasActiveFilters = Boolean(search) || selectedChain !== 'all' || selectedTag !== 'all' || selectedProtocol !== 'all';
+  const shouldShowSetupNotice = needsWalletSetup || needsCapSetup;
 
   const loadVaults = useCallback(async () => {
     setLoading(true);
@@ -72,6 +82,15 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
       setSortBy(field);
       setSortOrder('desc');
     }
+  };
+
+  const resetFilters = () => {
+    setSearch('');
+    setSelectedChain('all');
+    setSelectedTag('all');
+    setSelectedProtocol('all');
+    setSortBy('apy');
+    setSortOrder('desc');
   };
 
   return (
@@ -127,6 +146,32 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
         </select>
       </div>
 
+      {shouldShowSetupNotice && (
+        <div className="rounded-[1.5rem] border border-border bg-card/60 p-4 glow-border">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+                {t('explore.setupEyebrow')}
+              </div>
+              <div className="text-sm font-semibold tracking-tight">
+                {needsWalletSetup ? t('explore.setupWalletTitle') : t('explore.setupCapTitle')}
+              </div>
+              <p className="max-w-[72ch] text-xs leading-relaxed text-muted-foreground">
+                {needsWalletSetup ? t('explore.setupWalletDescription') : t('explore.setupCapDescription')}
+              </p>
+            </div>
+            {onOpenSettings && (
+              <button
+                onClick={onOpenSettings}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 active:translate-y-[1px]"
+              >
+                {t('explore.openSettingsCta')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-sm">
@@ -170,8 +215,42 @@ export default function VaultExplorer({ onSelectVault }: VaultExplorerProps) {
                 </tr>
               ) : filteredVaults.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-16 text-center text-muted-foreground text-xs">
-                    {t('explore.noResults')}
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground text-xs">
+                    <div className="mx-auto max-w-2xl rounded-[1.5rem] border border-dashed border-border bg-secondary/20 px-6 py-8">
+                      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <Search className="w-5 h-5" />
+                      </div>
+                      <div className="text-sm font-semibold text-foreground">{t('explore.emptyTitle')}</div>
+                      <p className="mx-auto mt-2 max-w-[58ch] text-xs leading-relaxed text-muted-foreground">
+                        {hasActiveFilters ? t('explore.emptyDescriptionFiltered') : t('explore.emptyDescriptionDefault')}
+                      </p>
+                      <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+                        {hasActiveFilters && (
+                          <button
+                            onClick={resetFilters}
+                            className="rounded-xl border border-primary/20 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary transition hover:border-primary/30 hover:bg-primary/15"
+                          >
+                            {t('explore.resetFiltersCta')}
+                          </button>
+                        )}
+                        {onOpenChat && (
+                          <button
+                            onClick={onOpenChat}
+                            className="rounded-xl border border-border bg-card/70 px-3.5 py-2 text-xs font-semibold text-foreground transition hover:bg-card"
+                          >
+                            {t('explore.askAgentCta')}
+                          </button>
+                        )}
+                        {shouldShowSetupNotice && onOpenSettings && (
+                          <button
+                            onClick={onOpenSettings}
+                            className="rounded-xl border border-border bg-secondary/70 px-3.5 py-2 text-xs font-semibold text-foreground transition hover:bg-secondary"
+                          >
+                            {t('explore.openSettingsCta')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (
