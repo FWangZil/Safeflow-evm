@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { X, Loader2, CheckCircle, ExternalLink, AlertTriangle, Coins, TrendingUp, Shield } from 'lucide-react';
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
-import { parseUnits } from 'viem';
+import { useAccount, usePublicClient, useReadContract, useWriteContract } from 'wagmi';
+import { keccak256, parseUnits, stringToHex } from 'viem';
 import type { EarnVault, ComposerQuote } from '@/types';
 import { formatApy, formatTvl } from '@/lib/earn-api';
+import { ERC20_ABI, getSafeFlowAddress, SAFEFLOW_VAULT_ABI } from '@/lib/contracts';
 import { useTranslation } from '@/i18n';
 
 interface DepositModalProps {
@@ -13,42 +14,87 @@ interface DepositModalProps {
   onClose: () => void;
 }
 
-type DepositStep = 'input' | 'quoting' | 'confirm' | 'signing' | 'pending' | 'success' | 'error';
+type DepositStep = 'input' | 'quoting' | 'confirm' | 'executing' | 'success' | 'error';
 
 export default function DepositModal({ vault, onClose }: DepositModalProps) {
   const { t } = useTranslation();
   const { address, isConnected, chainId } = useAccount();
+  const publicClient = usePublicClient({ chainId: vault.chainId });
   const [amount, setAmount] = useState('');
+  const [walletId, setWalletId] = useState('0');
+  const [capId, setCapId] = useState('0');
   const [step, setStep] = useState<DepositStep>('input');
   const [quote, setQuote] = useState<ComposerQuote | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progressLabel, setProgressLabel] = useState('');
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
 
-  const { sendTransactionAsync } = useSendTransaction();
-
-  const { isLoading: isTxPending, isSuccess: isTxSuccess } = useWaitForTransactionReceipt({
-    hash: txHash,
-  });
-
-  useEffect(() => {
-    if (isTxSuccess && step === 'pending') {
-      setStep('success');
-      // Record audit
-      recordAudit(txHash!).catch(() => {});
-    }
-  }, [isTxSuccess, step, txHash]);
+  const { writeContractAsync } = useWriteContract();
 
   const underlyingToken = vault.underlyingTokens?.[0];
   const tokenSymbol = underlyingToken?.symbol || '?';
   const tokenDecimals = underlyingToken?.decimals || 18;
+  const safeFlowAddress = (() => {
+    try {
+      return getSafeFlowAddress();
+    } catch {
+      return null;
+    }
+  })();
+  const amountWei = amount && parseFloat(amount) > 0 ? parseUnits(amount, tokenDecimals) : BigInt(0);
+
+  const { data: capData } = useReadContract({
+    address: safeFlowAddress ?? undefined,
+    abi: SAFEFLOW_VAULT_ABI,
+    functionName: 'getSessionCap',
+    args: safeFlowAddress ? [BigInt(capId || '0')] : undefined,
+    query: { enabled: Boolean(safeFlowAddress && capId !== '') },
+  });
+
+  const { data: remainingAllowance } = useReadContract({
+    address: safeFlowAddress ?? undefined,
+    abi: SAFEFLOW_VAULT_ABI,
+    functionName: 'getRemainingAllowance',
+    args: safeFlowAddress ? [BigInt(capId || '0')] : undefined,
+    query: { enabled: Boolean(safeFlowAddress && capId !== '') },
+  });
+
+  const { data: tokenAllowance } = useReadContract({
+    address: underlyingToken?.address as `0x${string}` | undefined,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: address && safeFlowAddress ? [address, safeFlowAddress] : undefined,
+    query: { enabled: Boolean(address && safeFlowAddress && underlyingToken?.address) },
+  });
 
   const fetchQuote = useCallback(async () => {
-    if (!address || !amount || parseFloat(amount) <= 0) return;
+    if (!address || !amount || parseFloat(amount) <= 0 || !safeFlowAddress || !underlyingToken) return;
 
     setStep('quoting');
     setError(null);
 
     try {
+      if (!capData) {
+        throw new Error('SessionCap not found. Please enter a valid cap ID.');
+      }
+
+      const cap = capData as {
+        walletId: bigint;
+        agent: string;
+        expiresAt: bigint;
+        active: boolean;
+      };
+
+      if (!cap.active) {
+        throw new Error('SessionCap is not active.');
+      }
+      if (cap.walletId !== BigInt(walletId)) {
+        throw new Error('Wallet ID does not match the selected SessionCap.');
+      }
+      if (cap.agent.toLowerCase() !== address.toLowerCase()) {
+        throw new Error('Connected wallet is not the authorized SessionCap agent.');
+      }
+
       const fromAmount = parseUnits(amount, tokenDecimals).toString();
 
       const params = new URLSearchParams({
@@ -56,8 +102,8 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
         toChain: String(vault.chainId),
         fromToken: underlyingToken.address,
         toToken: vault.address,
-        fromAddress: address,
-        toAddress: address,
+        fromAddress: safeFlowAddress,
+        toAddress: safeFlowAddress,
         fromAmount,
       });
 
@@ -78,62 +124,133 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
   }, [address, amount, vault, underlyingToken, tokenDecimals]);
 
   const executeDeposit = useCallback(async () => {
-    if (!quote?.transactionRequest) return;
+    if (!quote?.transactionRequest || !safeFlowAddress || !underlyingToken || !publicClient || !address) return;
 
-    setStep('signing');
+    setStep('executing');
     setError(null);
 
     try {
       const tx = quote.transactionRequest;
-      const hash = await sendTransactionAsync({
-        to: tx.to as `0x${string}`,
-        data: tx.data as `0x${string}`,
-        value: BigInt(tx.value || '0'),
-        chainId: tx.chainId,
-      });
-
-      setTxHash(hash);
-      setStep('pending');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Transaction failed';
-      if (msg.includes('User rejected') || msg.includes('denied')) {
-        setStep('confirm');
-        return;
+      if (BigInt(tx.value || '0') !== BigInt(0)) {
+        throw new Error('SafeFlow executeDeposit currently supports ERC-20 deposits only.');
       }
-      setError(msg);
-      setStep('error');
-    }
-  }, [quote, sendTransactionAsync]);
 
-  const recordAudit = async (hash: string) => {
-    try {
+      const cap = capData as {
+        walletId: bigint;
+        agent: string;
+        active: boolean;
+      } | undefined;
+
+      if (!cap?.active) {
+        throw new Error('SessionCap is not active.');
+      }
+      if (cap.walletId !== BigInt(walletId)) {
+        throw new Error('Wallet ID does not match the selected SessionCap.');
+      }
+      if (cap.agent.toLowerCase() !== address.toLowerCase()) {
+        throw new Error('Connected wallet is not the authorized SessionCap agent.');
+      }
+
+      if (remainingAllowance) {
+        const [intervalRemaining, totalRemaining] = remainingAllowance as [bigint, bigint];
+        if (intervalRemaining < amountWei) {
+          throw new Error('Amount exceeds the remaining per-interval SessionCap allowance.');
+        }
+        if (totalRemaining < amountWei) {
+          throw new Error('Amount exceeds the remaining total SessionCap allowance.');
+        }
+      }
+
+      const evidencePayload = JSON.stringify({
+        walletId,
+        capId,
+        vault: vault.address,
+        target: tx.to,
+        token: underlyingToken.address,
+        symbol: tokenSymbol,
+        amount,
+        chainId: vault.chainId,
+      });
+      const evidenceHash = keccak256(stringToHex(evidencePayload));
+
       const auditRes = await fetch('/api/audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentAddress: address,
-          action: 'deposit',
-          vault: vault.address,
+          action: 'executeDeposit',
+          vault: tx.to,
           vaultName: vault.name,
           token: tokenSymbol,
-          amount: parseUnits(amount, tokenDecimals).toString(),
-          reasoning: `User deposited ${amount} ${tokenSymbol} into ${vault.name} (${vault.protocol?.name}) on ${vault.network}`,
+          amount: amountWei.toString(),
+          reasoning: `SafeFlow wallet ${walletId} executes SessionCap ${capId} deposit into ${vault.name} on ${vault.network}`,
           riskScore: 1,
         }),
       });
-      const auditData = await auditRes.json();
-      // Update with tx hash
-      if (auditData.entry?.id) {
+      const auditData = await auditRes.json().catch(() => null);
+
+      if ((tokenAllowance as bigint | undefined) === undefined || (tokenAllowance as bigint) < amountWei) {
+        setProgressLabel('Approving token to SafeFlowVault...');
+        const approvalHash = await writeContractAsync({
+          address: underlyingToken.address as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [safeFlowAddress, amountWei],
+          chainId: vault.chainId,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approvalHash });
+      }
+
+      setProgressLabel('Funding SafeFlow wallet...');
+      const fundHash = await writeContractAsync({
+        address: safeFlowAddress,
+        abi: SAFEFLOW_VAULT_ABI,
+        functionName: 'deposit',
+        args: [BigInt(walletId), underlyingToken.address as `0x${string}`, amountWei],
+        chainId: vault.chainId,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: fundHash });
+
+      setProgressLabel('Executing SessionCap-protected deposit...');
+      const execHash = await writeContractAsync({
+        address: safeFlowAddress,
+        abi: SAFEFLOW_VAULT_ABI,
+        functionName: 'executeDeposit',
+        args: [
+          BigInt(capId),
+          underlyingToken.address as `0x${string}`,
+          amountWei,
+          tx.to as `0x${string}`,
+          evidenceHash,
+          tx.data as `0x${string}`,
+        ],
+        chainId: vault.chainId,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash: execHash });
+      setTxHash(execHash);
+
+      if (auditData?.entry?.id) {
         await fetch('/api/audit', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: auditData.entry.id, txHash: hash, status: 'executed' }),
+          body: JSON.stringify({ id: auditData.entry.id, txHash: execHash, status: 'executed' }),
         });
       }
-    } catch {
-      // Non-critical
+
+      setStep('success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Transaction failed';
+      if (msg.includes('User rejected') || msg.includes('denied')) {
+        setStep('confirm');
+        setProgressLabel('');
+        return;
+      }
+      setError(msg);
+      setProgressLabel('');
+      setStep('error');
     }
-  };
+  }, [address, amount, amountWei, capData, capId, publicClient, quote, remainingAllowance, safeFlowAddress, tokenAllowance, tokenSymbol, underlyingToken, vault, walletId, writeContractAsync]);
 
   const explorerUrl = vault.chainId === 8453
     ? `https://basescan.org/tx/${txHash}`
@@ -222,6 +339,11 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
           <div className="p-4 bg-secondary/50 rounded-xl text-center text-sm text-muted-foreground">
             Please connect your wallet to deposit.
           </div>
+        ) : !safeFlowAddress ? (
+          <div className="p-4 bg-warning/10 border border-warning/20 rounded-xl text-center text-sm">
+            <AlertTriangle className="w-4 h-4 inline mr-1.5 text-warning" />
+            SafeFlow contract is not configured. Deploy the contract and set `NEXT_PUBLIC_SAFEFLOW_CONTRACT` first.
+          </div>
         ) : isWrongChain ? (
           <div className="p-4 bg-warning/10 border border-warning/20 rounded-xl text-center text-sm">
             <AlertTriangle className="w-4 h-4 inline mr-1.5 text-warning" />
@@ -235,6 +357,55 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
               </div>
             )}
             <div>
+              <label className="block text-[11px] text-muted-foreground mb-1 uppercase tracking-wider font-medium">
+                SafeFlow Wallet ID
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={walletId}
+                onChange={e => setWalletId(e.target.value)}
+                className="w-full px-4 py-3 bg-input border border-border rounded-xl text-sm font-data focus:outline-none focus:ring-1 focus:ring-primary/40 mb-3"
+              />
+
+              <label className="block text-[11px] text-muted-foreground mb-1 uppercase tracking-wider font-medium">
+                SessionCap ID
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={capId}
+                onChange={e => setCapId(e.target.value)}
+                className="w-full px-4 py-3 bg-input border border-border rounded-xl text-sm font-data focus:outline-none focus:ring-1 focus:ring-primary/40 mb-3"
+              />
+
+              {capData && (
+                <div className="p-3 mb-3 bg-secondary/50 rounded-xl space-y-1 text-[11px] font-data">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Cap agent</span>
+                    <span className={(capData as { agent: string }).agent.toLowerCase() === address?.toLowerCase() ? 'text-success' : 'text-destructive'}>
+                      {(capData as { agent: string }).agent.slice(0, 6)}...{(capData as { agent: string }).agent.slice(-4)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Cap wallet</span>
+                    <span>{String((capData as { walletId: bigint }).walletId)}</span>
+                  </div>
+                  {remainingAllowance && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Interval remaining</span>
+                        <span>{String((remainingAllowance as [bigint, bigint])[0])}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total remaining</span>
+                        <span>{String((remainingAllowance as [bigint, bigint])[1])}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               <label className="block text-[11px] text-muted-foreground mb-1 uppercase tracking-wider font-medium">
                 Amount ({tokenSymbol})
               </label>
@@ -261,20 +432,28 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
             </div>
             <button
               onClick={fetchQuote}
-              disabled={!amount || parseFloat(amount) <= 0}
+              disabled={!amount || parseFloat(amount) <= 0 || !walletId || !capId}
               className="w-full px-4 py-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity shadow-lg shadow-primary/20 disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              Get Quote
+              Build SafeFlow Quote
             </button>
           </div>
         ) : step === 'quoting' ? (
           <div className="p-8 text-center">
             <Loader2 className="w-6 h-6 animate-spin text-primary mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">Building transaction via LI.FI Composer...</p>
+            <p className="text-sm text-muted-foreground">Building SafeFlow-compatible transaction via LI.FI Composer...</p>
           </div>
         ) : step === 'confirm' && quote ? (
           <div className="space-y-3">
             <div className="p-3 bg-secondary/50 rounded-xl space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Wallet ID</span>
+                <span className="font-data">{walletId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">SessionCap ID</span>
+                <span className="font-data">{capId}</span>
+              </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Deposit</span>
                 <span className="font-data font-semibold">{amount} {tokenSymbol}</span>
@@ -282,6 +461,10 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Vault</span>
                 <span className="font-data">{vault.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Execution</span>
+                <span className="font-data">approve → fund wallet → executeDeposit</span>
               </div>
               {quote.estimate?.gasCosts?.[0] && (
                 <div className="flex justify-between">
@@ -305,37 +488,26 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
                 onClick={executeDeposit}
                 className="flex-1 px-4 py-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity shadow-lg shadow-primary/20"
               >
-                Confirm Deposit
+                Execute via SafeFlow
               </button>
             </div>
           </div>
-        ) : step === 'signing' ? (
+        ) : step === 'executing' ? (
           <div className="p-8 text-center">
             <Loader2 className="w-6 h-6 animate-spin text-primary mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">Please sign the transaction in your wallet...</p>
-          </div>
-        ) : step === 'pending' ? (
-          <div className="p-8 text-center">
-            <Loader2 className="w-6 h-6 animate-spin text-primary mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">Transaction submitted. Waiting for confirmation...</p>
-            {txHash && (
-              <a href={explorerUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 mt-2 text-xs text-primary hover:underline">
-                View on Explorer <ExternalLink className="w-3 h-3" />
-              </a>
-            )}
+            <p className="text-sm text-muted-foreground">{progressLabel || 'Preparing SafeFlow transaction flow...'}</p>
           </div>
         ) : step === 'success' ? (
           <div className="p-8 text-center">
             <CheckCircle className="w-8 h-8 text-success mx-auto mb-3" />
-            <p className="text-sm font-semibold">Deposit Successful!</p>
+            <p className="text-sm font-semibold">SessionCap-Protected Deposit Successful!</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {amount} {tokenSymbol} deposited into {vault.name}
+              {amount} {tokenSymbol} moved through SafeFlow wallet {walletId} into {vault.name}
             </p>
             {txHash && (
               <a href={explorerUrl} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 mt-3 text-xs text-primary hover:underline">
-                View on Explorer <ExternalLink className="w-3 h-3" />
+                View executeDeposit on Explorer <ExternalLink className="w-3 h-3" />
               </a>
             )}
             <button
@@ -350,7 +522,7 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
         {step === 'input' && (
           <p className="text-[10px] text-muted-foreground/50 text-center mt-2 flex items-center justify-center gap-1">
             <Shield className="w-3 h-3" />
-            {t('vaultModal.protectedNote')}
+            SessionCap protection is enforced by SafeFlowVault.executeDeposit()
           </p>
         )}
       </div>

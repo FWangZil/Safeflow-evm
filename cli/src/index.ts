@@ -2,8 +2,11 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import crypto from 'node:crypto';
+import { createContractRuntime, type BackendMode } from './contract-runtime.js';
 
 const EARN_API = 'https://earn.li.fi';
+const COMPOSER_API = 'https://li.quest';
 
 const CHAIN_MAP: Record<string, number> = {
   ethereum: 1, eth: 1,
@@ -30,6 +33,18 @@ interface Vault {
   };
 }
 
+interface ComposerQuote {
+  transactionRequest: {
+    to: string;
+    data: string;
+    value: string;
+    chainId: number;
+  };
+  estimate?: {
+    gasCosts?: { amountUSD: string }[];
+  };
+}
+
 function formatApy(apy: number | null | undefined): string {
   if (apy == null) return chalk.dim('N/A');
   if (apy >= 10) return chalk.green.bold(`${apy.toFixed(2)}%`);
@@ -44,6 +59,95 @@ function formatTvl(usd: string | undefined): string {
   if (n >= 1e6) return chalk.cyan(`$${(n / 1e6).toFixed(2)}M`);
   if (n >= 1e3) return chalk.cyan(`$${(n / 1e3).toFixed(0)}K`);
   return chalk.cyan(`$${n.toFixed(0)}`);
+}
+
+function parseTokenAmount(amount: string, decimals: number): string {
+  const [wholePart, fractionalPart = ''] = amount.split('.');
+  const whole = wholePart === '' ? '0' : wholePart;
+  const fractional = fractionalPart.padEnd(decimals, '0').slice(0, decimals);
+  return (BigInt(whole) * 10n ** BigInt(decimals) + BigInt(fractional || '0')).toString();
+}
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    console.error(chalk.red(`Missing required env var: ${name}`));
+    process.exit(1);
+  }
+  return value;
+}
+
+function getRpcUrl(): string {
+  return process.env.RPC_URL || process.env.BASE_RPC_URL || requireEnv('RPC_URL');
+}
+
+function getSafeFlowContract(): string {
+  return process.env.SAFEFLOW_CONTRACT || process.env.NEXT_PUBLIC_SAFEFLOW_CONTRACT || requireEnv('SAFEFLOW_CONTRACT');
+}
+
+function getDefaultChainId(): number {
+  return Number(process.env.CHAIN_ID || process.env.SAFEFLOW_CHAIN_ID || '8453');
+}
+
+function parseBackend(value: string | undefined): BackendMode {
+  if (!value) return 'auto';
+  if (value === 'auto' || value === 'cast' || value === 'viem') return value;
+  throw new Error(`Invalid backend: ${value}. Expected auto, cast, or viem.`);
+}
+
+function asAddress(value: string): `0x${string}` {
+  return value as `0x${string}`;
+}
+
+function asHex(value: string): `0x${string}` {
+  return value as `0x${string}`;
+}
+
+async function getContractRuntimeForOptions(opts: { backend?: string; chainId?: string | number }) {
+  const chainId = typeof opts.chainId === 'number' ? opts.chainId : Number(opts.chainId || getDefaultChainId());
+  return createContractRuntime({
+    backend: parseBackend(opts.backend),
+    rpcUrl: getRpcUrl(),
+    chainId,
+    promptForFoundry: true,
+  });
+}
+
+async function fetchQuote(params: {
+  fromChain: number;
+  toChain: number;
+  fromToken: string;
+  toToken: string;
+  fromAddress: string;
+  toAddress: string;
+  fromAmount: string;
+}): Promise<ComposerQuote> {
+  const searchParams = new URLSearchParams({
+    fromChain: String(params.fromChain),
+    toChain: String(params.toChain),
+    fromToken: params.fromToken,
+    toToken: params.toToken,
+    fromAddress: params.fromAddress,
+    toAddress: params.toAddress,
+    fromAmount: params.fromAmount,
+  });
+
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const apiKey = process.env.LIFI_API_KEY || process.env.NEXT_PUBLIC_LIFI_API_KEY;
+  if (apiKey) {
+    headers['x-lifi-api-key'] = apiKey;
+  }
+
+  const res = await fetch(`${COMPOSER_API}/v1/quote?${searchParams.toString()}`, { headers });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Composer API error (${res.status}): ${text.slice(0, 300)}`);
+  }
+  return res.json();
+}
+
+function buildEvidenceHash(payload: Record<string, unknown>): string {
+  return `0x${crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
 }
 
 async function fetchVaults(opts: {
@@ -243,6 +347,228 @@ program
         if (pos.pnlUsd) console.log(`   PnL:      ${chalk.green('$' + pos.pnlUsd)}`);
         console.log();
       });
+    } catch (err: any) {
+      console.error(chalk.red(`Error: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+const contract = program
+  .command('contract')
+  .description('Operate the deployed SafeFlowVault contract');
+
+contract
+  .command('create-wallet')
+  .description('Create a SafeFlow wallet on-chain')
+  .option('--backend <backend>', 'Execution backend: auto | cast | viem', 'auto')
+  .option('--chain-id <number>', 'Chain ID', String(getDefaultChainId()))
+  .action(async (opts) => {
+    try {
+      const contractAddress = asAddress(getSafeFlowContract());
+      const runtime = await getContractRuntimeForOptions(opts);
+      console.log(chalk.bold('\n🔐 Creating SafeFlow wallet...\n'));
+      console.log(chalk.dim(`Backend: ${runtime.backend}`));
+      const result = await runtime.createWallet(contractAddress);
+      console.log(chalk.green(`Success: ${result}\n`));
+    } catch (err: any) {
+      console.error(chalk.red(`Error: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+contract
+  .command('fund-wallet')
+  .description('Approve a token and deposit it into a SafeFlow wallet')
+  .requiredOption('--wallet-id <id>', 'Wallet ID')
+  .requiredOption('--token <address>', 'ERC20 token address')
+  .requiredOption('--amount <amount>', 'Human-readable token amount, e.g. 0.02')
+  .option('--backend <backend>', 'Execution backend: auto | cast | viem', 'auto')
+  .option('--chain-id <number>', 'Chain ID', String(getDefaultChainId()))
+  .option('--decimals <number>', 'Token decimals', '6')
+  .action(async (opts) => {
+    try {
+      const contractAddress = asAddress(getSafeFlowContract());
+      const runtime = await getContractRuntimeForOptions(opts);
+      const decimals = parseInt(opts.decimals, 10);
+      const amount = BigInt(parseTokenAmount(opts.amount, decimals));
+      const token = asAddress(opts.token);
+
+      console.log(chalk.dim(`Backend: ${runtime.backend}`));
+      console.log(chalk.bold('\n💸 Approving token to SafeFlowVault...\n'));
+      const approval = await runtime.approveToken(token, contractAddress, amount);
+      console.log(chalk.green(`Approval tx: ${approval}`));
+
+      console.log(chalk.bold('\n🏦 Funding SafeFlow wallet...\n'));
+      const deposit = await runtime.depositToWallet(contractAddress, BigInt(opts.walletId), token, amount);
+      console.log(chalk.green(`Deposit tx: ${deposit}\n`));
+    } catch (err: any) {
+      console.error(chalk.red(`Error: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+contract
+  .command('create-cap')
+  .description('Create a SessionCap for an agent')
+  .requiredOption('--wallet-id <id>', 'Wallet ID')
+  .requiredOption('--agent <address>', 'Agent address')
+  .requiredOption('--max-per-interval <amount>', 'Max per interval in raw units')
+  .requiredOption('--max-total <amount>', 'Max total in raw units')
+  .requiredOption('--interval-seconds <seconds>', 'Interval in seconds')
+  .requiredOption('--expires-at <timestamp>', 'Expiry unix timestamp')
+  .option('--backend <backend>', 'Execution backend: auto | cast | viem', 'auto')
+  .option('--chain-id <number>', 'Chain ID', String(getDefaultChainId()))
+  .action(async (opts) => {
+    try {
+      const contractAddress = asAddress(getSafeFlowContract());
+      const runtime = await getContractRuntimeForOptions(opts);
+      console.log(chalk.bold('\n🛡️ Creating SessionCap...\n'));
+      console.log(chalk.dim(`Backend: ${runtime.backend}`));
+      const result = await runtime.createSessionCap(
+        contractAddress,
+        BigInt(opts.walletId),
+        asAddress(opts.agent),
+        BigInt(opts.maxPerInterval),
+        BigInt(opts.maxTotal),
+        BigInt(opts.intervalSeconds),
+        BigInt(opts.expiresAt),
+      );
+      console.log(chalk.green(`Success: ${result}\n`));
+    } catch (err: any) {
+      console.error(chalk.red(`Error: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+contract
+  .command('revoke-cap')
+  .description('Revoke an existing SessionCap')
+  .argument('<capId>', 'Cap ID')
+  .option('--backend <backend>', 'Execution backend: auto | cast | viem', 'auto')
+  .option('--chain-id <number>', 'Chain ID', String(getDefaultChainId()))
+  .action(async (capId, opts) => {
+    try {
+      const contractAddress = asAddress(getSafeFlowContract());
+      const runtime = await getContractRuntimeForOptions(opts);
+      console.log(chalk.bold(`\n⛔ Revoking SessionCap ${capId}...\n`));
+      console.log(chalk.dim(`Backend: ${runtime.backend}`));
+      const result = await runtime.revokeSessionCap(contractAddress, BigInt(capId));
+      console.log(chalk.green(`Success: ${result}\n`));
+    } catch (err: any) {
+      console.error(chalk.red(`Error: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+contract
+  .command('cap-info')
+  .description('Query SessionCap info and remaining allowance')
+  .argument('<capId>', 'Cap ID')
+  .option('--backend <backend>', 'Execution backend: auto | cast | viem', 'auto')
+  .option('--chain-id <number>', 'Chain ID', String(getDefaultChainId()))
+  .action(async (capId, opts) => {
+    try {
+      const contractAddress = asAddress(getSafeFlowContract());
+      const runtime = await getContractRuntimeForOptions(opts);
+      console.log(chalk.bold(`\n🔎 Querying SessionCap ${capId}...\n`));
+      console.log(chalk.dim(`Backend: ${runtime.backend}`));
+      const cap = await runtime.getSessionCap(contractAddress, BigInt(capId));
+      const remaining = await runtime.getRemainingAllowance(contractAddress, BigInt(capId));
+      console.log(chalk.dim('SessionCap:'));
+      console.log({
+        walletId: cap.walletId.toString(),
+        agent: cap.agent,
+        maxSpendPerInterval: cap.maxSpendPerInterval.toString(),
+        maxSpendTotal: cap.maxSpendTotal.toString(),
+        intervalSeconds: cap.intervalSeconds.toString(),
+        expiresAt: cap.expiresAt.toString(),
+        totalSpent: cap.totalSpent.toString(),
+        lastSpendTime: cap.lastSpendTime.toString(),
+        currentIntervalSpent: cap.currentIntervalSpent.toString(),
+        active: cap.active,
+      });
+      console.log();
+      console.log(chalk.dim('Remaining allowance:'));
+      console.log({
+        intervalRemaining: remaining.intervalRemaining.toString(),
+        totalRemaining: remaining.totalRemaining.toString(),
+      });
+      console.log();
+    } catch (err: any) {
+      console.error(chalk.red(`Error: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+contract
+  .command('execute-deposit')
+  .description('Fund a SafeFlow wallet and execute a SessionCap-protected vault deposit')
+  .requiredOption('--wallet-id <id>', 'Wallet ID')
+  .requiredOption('--cap-id <id>', 'SessionCap ID')
+  .requiredOption('--token <address>', 'Underlying token address')
+  .requiredOption('--vault <address>', 'Vault token address from LI.FI Earn API')
+  .requiredOption('--amount <amount>', 'Human-readable token amount, e.g. 0.02')
+  .option('--backend <backend>', 'Execution backend: auto | cast | viem', 'auto')
+  .option('--decimals <number>', 'Token decimals', '6')
+  .option('--chain-id <number>', 'Chain ID', '8453')
+  .action(async (opts) => {
+    try {
+      const contractAddress = asAddress(getSafeFlowContract());
+      const runtime = await getContractRuntimeForOptions(opts);
+      const decimals = parseInt(opts.decimals, 10);
+      const chainId = parseInt(opts.chainId, 10);
+      const amount = BigInt(parseTokenAmount(opts.amount, decimals));
+      const token = asAddress(opts.token);
+
+      console.log(chalk.dim(`Backend: ${runtime.backend}`));
+      console.log(chalk.bold('\n💸 Approving token to SafeFlowVault...\n'));
+      const approval = await runtime.approveToken(token, contractAddress, amount);
+      console.log(chalk.green(`Approval tx: ${approval}`));
+
+      console.log(chalk.bold('\n🏦 Funding SafeFlow wallet...\n'));
+      const deposit = await runtime.depositToWallet(contractAddress, BigInt(opts.walletId), token, amount);
+      console.log(chalk.green(`Wallet funding tx: ${deposit}`));
+
+      console.log(chalk.bold('\n🧠 Fetching LI.FI quote for SafeFlow...\n'));
+      const quote = await fetchQuote({
+        fromChain: chainId,
+        toChain: chainId,
+        fromToken: opts.token,
+        toToken: opts.vault,
+        fromAddress: contractAddress,
+        toAddress: contractAddress,
+        fromAmount: amount.toString(),
+      });
+
+      if (BigInt(quote.transactionRequest.value || '0') !== BigInt(0)) {
+        throw new Error('execute-deposit currently supports ERC20 routes only (quote value must be 0).');
+      }
+
+      const evidenceHash = buildEvidenceHash({
+        walletId: opts.walletId,
+        capId: opts.capId,
+        token: opts.token,
+        vault: opts.vault,
+        quoteTarget: quote.transactionRequest.to,
+        amount,
+        chainId,
+      });
+
+      console.log(chalk.bold('\n🚀 Executing SafeFlowVault.executeDeposit...\n'));
+      const execute = await runtime.executeDeposit(
+        contractAddress,
+        BigInt(opts.capId),
+        token,
+        amount,
+        asAddress(quote.transactionRequest.to),
+        asHex(evidenceHash),
+        asHex(quote.transactionRequest.data),
+      );
+      console.log(chalk.green(`executeDeposit tx: ${execute}`));
+      if (quote.estimate?.gasCosts?.[0]) {
+        console.log(chalk.dim(`Estimated gas from LI.FI: $${quote.estimate.gasCosts[0].amountUSD}`));
+      }
+      console.log();
     } catch (err: any) {
       console.error(chalk.red(`Error: ${err.message}`));
       process.exit(1);
