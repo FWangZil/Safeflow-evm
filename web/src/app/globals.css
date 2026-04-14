@@ -95,8 +95,7 @@ body::before {
 #app-root,
 main,
 header,
-footer,
-.fixed {
+footer {
   position: relative;
   z-index: 1;
 }

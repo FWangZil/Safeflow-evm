@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { X, Loader2, CheckCircle, ExternalLink, AlertTriangle, Coins, TrendingUp, Shield } from 'lucide-react';
-import { useAccount, usePublicClient, useReadContract, useWriteContract } from 'wagmi';
+import { X, Loader2, CheckCircle, ExternalLink, AlertTriangle, Coins, Shield } from 'lucide-react';
+import { useAccount, usePublicClient, useReadContract, useSwitchChain, useWriteContract } from 'wagmi';
 import { keccak256, parseUnits, stringToHex } from 'viem';
 import type { EarnVault, ComposerQuote } from '@/types';
-import { formatApy, formatTvl } from '@/lib/earn-api';
+import { formatTvl } from '@/lib/earn-api';
+import { getChainExplorerTxUrl, getExecutionChainDisplayName, getExecutionChainId, getSupportedWalletChain } from '@/lib/chains';
 import { ERC20_ABI, getSafeFlowAddress, SAFEFLOW_VAULT_ABI } from '@/lib/contracts';
 import { useTranslation } from '@/i18n';
 
@@ -19,21 +20,26 @@ type DepositStep = 'input' | 'quoting' | 'confirm' | 'executing' | 'success' | '
 export default function DepositModal({ vault, onClose }: DepositModalProps) {
   const { t } = useTranslation();
   const { address, isConnected, chainId } = useAccount();
-  const publicClient = usePublicClient({ chainId: vault.chainId });
   const [amount, setAmount] = useState('');
   const [walletId, setWalletId] = useState('0');
   const [capId, setCapId] = useState('0');
   const [step, setStep] = useState<DepositStep>('input');
   const [quote, setQuote] = useState<ComposerQuote | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const [progressLabel, setProgressLabel] = useState('');
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
 
+  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
   const { writeContractAsync } = useWriteContract();
 
   const underlyingToken = vault.underlyingTokens?.[0];
   const tokenSymbol = underlyingToken?.symbol || '?';
   const tokenDecimals = underlyingToken?.decimals || 18;
+  const executionChainId = getExecutionChainId(vault.chainId);
+  const executionChainName = getExecutionChainDisplayName(vault.network, vault.chainId);
+  const targetChain = getSupportedWalletChain(executionChainId);
+  const publicClient = usePublicClient({ chainId: executionChainId });
   const safeFlowAddress = (() => {
     try {
       return getSafeFlowAddress();
@@ -121,7 +127,65 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
       setError(err instanceof Error ? err.message : 'Failed to get quote');
       setStep('error');
     }
-  }, [address, amount, vault, underlyingToken, tokenDecimals]);
+  }, [address, amount, capData, safeFlowAddress, tokenDecimals, underlyingToken, vault, walletId]);
+
+  const switchToVaultChain = useCallback(async () => {
+    if (!targetChain) {
+      setSwitchError(`Unsupported execution chain ${executionChainId}.`);
+      return;
+    }
+
+    setSwitchError(null);
+
+    try {
+      await switchChainAsync({ chainId: targetChain.id });
+    } catch (err) {
+      const provider = typeof window !== 'undefined'
+        ? (window as Window & {
+            ethereum?: {
+              request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+            };
+          }).ethereum
+        : undefined;
+
+      const errorCode = typeof err === 'object' && err !== null && 'code' in err
+        ? (err as { code?: number | string }).code
+        : undefined;
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const shouldTryAddChain = errorCode === 4902 || /unrecognized chain|unknown chain|not added/i.test(errorMessage);
+
+      if (provider && shouldTryAddChain) {
+        try {
+          await provider.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: `0x${targetChain.id.toString(16)}`,
+              chainName: targetChain.name,
+              nativeCurrency: targetChain.nativeCurrency,
+              rpcUrls: targetChain.rpcUrls.default.http,
+              blockExplorerUrls: targetChain.blockExplorers?.default?.url
+                ? [targetChain.blockExplorers.default.url]
+                : undefined,
+            }],
+          });
+
+          await switchChainAsync({ chainId: targetChain.id });
+          return;
+        } catch (addChainError) {
+          const addChainMessage = addChainError instanceof Error ? addChainError.message : String(addChainError);
+          setSwitchError(addChainMessage);
+          return;
+        }
+      }
+
+      if (/user rejected|denied|cancelled|canceled/i.test(errorMessage)) {
+        setSwitchError('Network switch was cancelled in your wallet.');
+        return;
+      }
+
+      setSwitchError(errorMessage);
+    }
+  }, [executionChainId, switchChainAsync, targetChain]);
 
   const executeDeposit = useCallback(async () => {
     if (!quote?.transactionRequest || !safeFlowAddress || !underlyingToken || !publicClient || !address) return;
@@ -150,6 +214,9 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
       if (cap.agent.toLowerCase() !== address.toLowerCase()) {
         throw new Error('Connected wallet is not the authorized SessionCap agent.');
       }
+      if (chainId !== executionChainId) {
+        throw new Error(`Please switch to ${executionChainName} (Chain ${executionChainId}) before depositing.`);
+      }
 
       if (remainingAllowance) {
         const [intervalRemaining, totalRemaining] = remainingAllowance as [bigint, bigint];
@@ -169,7 +236,8 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
         token: underlyingToken.address,
         symbol: tokenSymbol,
         amount,
-        chainId: vault.chainId,
+        chainId: executionChainId,
+        sourceChainId: vault.chainId,
       });
       const evidenceHash = keccak256(stringToHex(evidencePayload));
 
@@ -183,7 +251,7 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
           vaultName: vault.name,
           token: tokenSymbol,
           amount: amountWei.toString(),
-          reasoning: `SafeFlow wallet ${walletId} executes SessionCap ${capId} deposit into ${vault.name} on ${vault.network}`,
+          reasoning: `SafeFlow wallet ${walletId} executes SessionCap ${capId} deposit into ${vault.name} on ${executionChainName}`,
           riskScore: 1,
         }),
       });
@@ -196,7 +264,7 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
           abi: ERC20_ABI,
           functionName: 'approve',
           args: [safeFlowAddress, amountWei],
-          chainId: vault.chainId,
+          chainId: executionChainId,
         });
         await publicClient.waitForTransactionReceipt({ hash: approvalHash });
       }
@@ -207,7 +275,7 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
         abi: SAFEFLOW_VAULT_ABI,
         functionName: 'deposit',
         args: [BigInt(walletId), underlyingToken.address as `0x${string}`, amountWei],
-        chainId: vault.chainId,
+        chainId: executionChainId,
       });
       await publicClient.waitForTransactionReceipt({ hash: fundHash });
 
@@ -224,7 +292,7 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
           evidenceHash,
           tx.data as `0x${string}`,
         ],
-        chainId: vault.chainId,
+        chainId: executionChainId,
       });
 
       await publicClient.waitForTransactionReceipt({ hash: execHash });
@@ -250,15 +318,11 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
       setProgressLabel('');
       setStep('error');
     }
-  }, [address, amount, amountWei, capData, capId, publicClient, quote, remainingAllowance, safeFlowAddress, tokenAllowance, tokenSymbol, underlyingToken, vault, walletId, writeContractAsync]);
+  }, [address, amount, amountWei, capData, capId, chainId, executionChainId, executionChainName, publicClient, quote, remainingAllowance, safeFlowAddress, tokenAllowance, tokenSymbol, underlyingToken, vault, walletId, writeContractAsync]);
 
-  const explorerUrl = vault.chainId === 8453
-    ? `https://basescan.org/tx/${txHash}`
-    : vault.chainId === 42161
-    ? `https://arbiscan.io/tx/${txHash}`
-    : `https://etherscan.io/tx/${txHash}`;
+  const explorerUrl = getChainExplorerTxUrl(executionChainId, txHash);
 
-  const isWrongChain = isConnected && chainId !== vault.chainId;
+  const isWrongChain = isConnected && chainId !== executionChainId;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md animate-fade-in-up" onClick={onClose}>
@@ -345,9 +409,28 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
             SafeFlow contract is not configured. Deploy the contract and set `NEXT_PUBLIC_SAFEFLOW_CONTRACT` first.
           </div>
         ) : isWrongChain ? (
-          <div className="p-4 bg-warning/10 border border-warning/20 rounded-xl text-center text-sm">
-            <AlertTriangle className="w-4 h-4 inline mr-1.5 text-warning" />
-            Please switch to {vault.network} (Chain {vault.chainId}) to deposit.
+          <div className="p-4 bg-warning/10 border border-warning/20 rounded-xl text-center text-sm space-y-3">
+            <div>
+              <AlertTriangle className="w-4 h-4 inline mr-1.5 text-warning" />
+              Switch your wallet to {executionChainName} (Chain {executionChainId}) to continue.
+            </div>
+            {switchError && (
+              <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-xs text-left">
+                {switchError}
+              </div>
+            )}
+            <button
+              onClick={switchToVaultChain}
+              disabled={isSwitchingChain || !targetChain}
+              className="w-full px-4 py-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity shadow-lg shadow-primary/20 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              {isSwitchingChain ? 'Waiting for wallet...' : `Switch to ${executionChainName}`}
+            </button>
+            {!targetChain && (
+              <div className="text-xs text-muted-foreground">
+                This network is not configured in the app yet.
+              </div>
+            )}
           </div>
         ) : step === 'input' || step === 'error' ? (
           <div className="space-y-3">
@@ -474,7 +557,7 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
               )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Chain</span>
-                <span className="font-data">{vault.network}</span>
+                <span className="font-data">{executionChainName}</span>
               </div>
             </div>
             <div className="flex gap-2">
@@ -504,11 +587,16 @@ export default function DepositModal({ vault, onClose }: DepositModalProps) {
             <p className="text-xs text-muted-foreground mt-1">
               {amount} {tokenSymbol} moved through SafeFlow wallet {walletId} into {vault.name}
             </p>
-            {txHash && (
+            {txHash && explorerUrl && (
               <a href={explorerUrl} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 mt-3 text-xs text-primary hover:underline">
                 View executeDeposit on Explorer <ExternalLink className="w-3 h-3" />
               </a>
+            )}
+            {txHash && !explorerUrl && (
+              <div className="mt-3 text-xs text-muted-foreground font-data break-all">
+                Tx Hash: {txHash}
+              </div>
             )}
             <button
               onClick={onClose}

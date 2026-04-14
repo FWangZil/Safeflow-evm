@@ -129,10 +129,47 @@ Chronological record of what was built, decisions made, and current status.
 
 ---
 
+## Session 2: Frontend Fixes & Local Fork Support (Apr 15)
+
+### Summary
+
+Focused on fixing frontend runtime issues and enabling local Base fork testing without colliding with real Base in wallet UIs.
+
+See full details: [`docs/frontend-network-runtime-notes.md`](./frontend-network-runtime-notes.md)
+
+### Completed
+
+1. **Fixed modal overlay positioning** — Removed erroneous global `.fixed` override that caused vault deposit modals to appear misplaced.
+
+2. **Implemented actionable wallet chain switching** — Replaced passive wrong-chain warning with a real `wagmi useSwitchChain()` flow that also falls back to `wallet_addEthereumChain` when needed.
+
+3. **Added localhost Base fork support** — Introduced execution-chain mapping so the app can interpret Base vaults while executing against a local fork using a dedicated chain id (e.g., `31337`) to avoid wallet conflicts.
+
+### Key File Changes
+
+- `web/src/app/globals.css`
+- `web/src/app/providers.tsx`
+- `web/src/components/DepositModal.tsx`
+- `web/src/lib/chains.ts` (new)
+- `web/.env.example`
+
+### Validation
+
+- ESLint passes for all touched files.
+- Runtime behavior verified: modal centers, chain switching attempts wallet action, local fork network appears in wallet UI when enabled.
+
+### Next Options (Documented)
+
+- Option A: Add `local_base_fork` preset to deploy/configure script.
+- Option B: Add UI badge to visibly distinguish `Real Base` vs `Local Base Fork`.
+- Option C: Extract chain switching into reusable frontend utility.
+
+---
+
 ## Next Steps (Day 2)
 
 1. Connect Settings page to contract via wagmi `useWriteContract`
-2. Implement portfolio page with real data
+2. Implement portfolio page with real LI.FI data
 3. Deploy contract to Base Sepolia
 4. Add OpenAI integration for smarter chat responses
 5. End-to-end deposit flow: chat → vault → audit → contract → confirm

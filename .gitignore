@@ -39,3 +39,4 @@ data/
 # Misc
 *.tsbuildinfo
 .history/
+.specstory/
