@@ -218,7 +218,7 @@
     "buildQuote": "Build SafeFlow quote"
   },
   "footer": {
-    "left": "SafeFlow Yield Agent — DeFi Mullet Hackathon #1 • Track 2: AI × Earn",
+    "left": "SafeFlow Yield Agent",
     "right": "Powered by LI.FI Earn API"
   },
   "runtime": {
