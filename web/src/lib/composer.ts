@@ -56,8 +56,6 @@ export interface QuoteParams {
 }
 
 export async function getQuote(params: QuoteParams): Promise<ComposerQuote> {
-  const apiKey = process.env.NEXT_PUBLIC_LIFI_API_KEY;
-
   const searchParams = new URLSearchParams({
     fromChain: String(params.fromChain),
     toChain: String(params.toChain),
@@ -68,14 +66,8 @@ export async function getQuote(params: QuoteParams): Promise<ComposerQuote> {
     fromAmount: params.fromAmount,
   });
 
-  const headers: Record<string, string> = {};
-  if (apiKey) {
-    headers['x-lifi-api-key'] = apiKey;
-  }
-
-  const res = await fetch(`${COMPOSER_API_BASE}/v1/quote?${searchParams.toString()}`, {
-    headers,
-  });
+  // Route through server-side proxy to keep LIFI_API_KEY off the client bundle
+  const res = await fetch(`/api/earn/quote?${searchParams.toString()}`);
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => 'Unknown error');

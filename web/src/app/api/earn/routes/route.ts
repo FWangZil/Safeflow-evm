@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
       params.set(key, value);
     }
 
-    const apiKey = process.env.NEXT_PUBLIC_LIFI_API_KEY;
+    const apiKey = process.env.LIFI_API_KEY;
     const headers: Record<string, string> = {
       'Accept': 'application/json',
     };
