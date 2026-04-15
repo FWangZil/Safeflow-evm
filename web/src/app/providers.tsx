@@ -7,6 +7,7 @@ import { ThemeProvider, useTheme } from 'next-themes';
 import { I18nProvider } from '@/i18n';
 import { LOCAL_FORK_CONFIG_ERROR, walletChains } from '@/lib/chains';
 import { SafeFlowResourceProvider } from '@/lib/safeflow-resources';
+import { useEffect, useState } from 'react';
 import '@rainbow-me/rainbowkit/styles.css';
 
 if (LOCAL_FORK_CONFIG_ERROR) {
@@ -27,8 +28,11 @@ const darkKitTheme = darkTheme({ accentColor: '#6366f1', borderRadius: 'medium' 
 
 function ThemedRainbowKit({ children }: { children: React.ReactNode }) {
   const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const theme = mounted && resolvedTheme === 'light' ? lightKitTheme : darkKitTheme;
   return (
-    <RainbowKitProvider theme={resolvedTheme === 'light' ? lightKitTheme : darkKitTheme}>
+    <RainbowKitProvider theme={theme}>
       {children}
     </RainbowKitProvider>
   );

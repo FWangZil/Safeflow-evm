@@ -74,6 +74,8 @@ export default function ChatAgent({ onSelectVault, onOpenSettings }: ChatAgentPr
         role: 'assistant',
         content: `${t('chat.errorPrefix')} ${err instanceof Error ? err.message : t('chat.errorRetry')}`,
         timestamp: Date.now(),
+        retryText: text.trim(),
+        retryUserMsgId: userMsg.id,
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
