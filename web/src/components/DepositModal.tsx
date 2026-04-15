@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { X, Loader2, CheckCircle, ExternalLink, AlertTriangle, Coins, Shield, ArrowDownUp } from 'lucide-react';
 import { useAccount, useBalance, usePublicClient, useReadContract, useSendTransaction, useWriteContract } from 'wagmi';
 import { formatUnits, keccak256, parseUnits, stringToHex } from 'viem';
@@ -74,8 +74,13 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
   // Swap-before-deposit state
   const [swapMode, setSwapMode] = useState(false);
   const [swapSourceToken, setSwapSourceToken] = useState<TokenInfo | null>(null);
-  const [swapSourceAmount, setSwapSourceAmount] = useState('');
+  const [swapSourceAmount, setSwapSourceAmount] = useState(''); // used when direction='from'
+  const [swapDirection, setSwapDirection] = useState<'from' | 'to'>('from');
+  const [swapTargetAmount, setSwapTargetAmount] = useState(''); // used when direction='to'
+  const [swapPreview, setSwapPreview] = useState<{ fromAmount: string; toAmount: string; rate: string } | null>(null);
+  const [swapPreviewLoading, setSwapPreviewLoading] = useState(false);
   const [swapQuote, setSwapQuote] = useState<ComposerQuote | null>(null);
+  const swapPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { writeContractAsync } = useWriteContract();
   const { sendTransactionAsync } = useSendTransaction();
@@ -231,12 +236,59 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
     return { tone: 'success' as const, message: t('vaultModal.capReady') };
   }, [address, capId, capNotFound, isCapLoading, parsedCapData, t]);
 
+  // ── Debounced swap preview (auto-computes the other side as user types) ──
+  useEffect(() => {
+    if (!swapMode || !swapSourceToken || !underlyingToken) { setSwapPreview(null); return; }
+    const activeAmount = swapDirection === 'from' ? swapSourceAmount : swapTargetAmount;
+    if (!activeAmount || parseFloat(activeAmount) <= 0) { setSwapPreview(null); return; }
+
+    if (swapPreviewTimer.current) clearTimeout(swapPreviewTimer.current);
+    setSwapPreviewLoading(true);
+
+    swapPreviewTimer.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          fromChain: String(vault.chainId),
+          toChain: String(vault.chainId),
+          fromToken: swapSourceToken.address,
+          toToken: underlyingToken.address,
+          fromAddress: address ?? ZERO_ADDRESS,
+          toAddress: address ?? ZERO_ADDRESS,
+        });
+        if (swapDirection === 'from') {
+          params.set('fromAmount', parseUnits(swapSourceAmount, swapSourceToken.decimals).toString());
+        } else {
+          params.set('toAmount', parseUnits(swapTargetAmount, tokenDecimals).toString());
+        }
+        const res = await fetch(`/api/earn/quote?${params}`);
+        if (!res.ok) throw new Error('preview failed');
+        const data: ComposerQuote = await res.json();
+        const fromAmt = data.action.fromAmount;
+        const toAmt = data.estimate.toAmount;
+        const fromHuman = parseFloat(formatUnits(BigInt(fromAmt), swapSourceToken.decimals));
+        const toHuman = parseFloat(formatUnits(BigInt(toAmt), tokenDecimals));
+        const rate = fromHuman > 0 ? (toHuman / fromHuman).toFixed(4) : '—';
+        setSwapPreview({
+          fromAmount: fromAmt,
+          toAmount: toAmt,
+          rate: `1 ${swapSourceToken.symbol} ≈ ${rate} ${tokenSymbol}`,
+        });
+      } catch {
+        setSwapPreview(null);
+      } finally {
+        setSwapPreviewLoading(false);
+      }
+    }, 600);
+  }, [swapMode, swapDirection, swapSourceAmount, swapTargetAmount, swapSourceToken, underlyingToken, address, vault.chainId, tokenDecimals, tokenSymbol]);
+
   const fetchQuote = useCallback(async () => {
     if (!safeFlowAddress || !underlyingToken || !address) return;
 
-    // In swap mode we need: address + swapSourceToken + swapSourceAmount
+    // In swap mode we need: source token + at least one amount filled
     if (swapMode) {
-      if (!swapSourceToken || !swapSourceAmount || parseFloat(swapSourceAmount) <= 0) return;
+      const okFrom = swapDirection === 'from' && Boolean(swapSourceToken && swapSourceAmount && parseFloat(swapSourceAmount) > 0);
+      const okTo = swapDirection === 'to' && Boolean(swapSourceToken && swapTargetAmount && parseFloat(swapTargetAmount) > 0);
+      if (!okFrom && !okTo) return;
     } else {
       if (!amount || parseFloat(amount) <= 0) return;
     }
@@ -273,7 +325,6 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
       let depositFromAmount: string;
 
       if (swapMode && swapSourceToken) {
-        const swapFromAmount = parseUnits(swapSourceAmount, swapSourceToken.decimals).toString();
         const swapParams = new URLSearchParams({
           fromChain: String(vault.chainId),
           toChain: String(vault.chainId),
@@ -281,8 +332,12 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
           toToken: underlyingToken.address,
           fromAddress: address,
           toAddress: address,
-          fromAmount: swapFromAmount,
         });
+        if (swapDirection === 'from') {
+          swapParams.set('fromAmount', parseUnits(swapSourceAmount, swapSourceToken.decimals).toString());
+        } else {
+          swapParams.set('toAmount', parseUnits(swapTargetAmount, tokenDecimals).toString());
+        }
         const swapRes = await fetch(`/api/earn/quote?${swapParams.toString()}`);
         if (!swapRes.ok) {
           const text = await swapRes.text().catch(() => '');
@@ -340,7 +395,7 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
       setError(err instanceof Error ? err.message : 'Failed to get quote');
       setStep('error');
     }
-  }, [address, amount, capData, safeFlowAddress, swapMode, swapSourceAmount, swapSourceToken, tokenDecimals, underlyingToken, vault, walletId]);
+  }, [address, amount, capData, safeFlowAddress, swapDirection, swapMode, swapSourceAmount, swapSourceToken, swapTargetAmount, tokenDecimals, underlyingToken, vault, walletId]);
 
   const executeDeposit = useCallback(async () => {
     if (!quote?.transactionRequest || !safeFlowAddress || !underlyingToken || !publicClient || !address) return;
@@ -353,9 +408,9 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
         setStep('swapping');
         const swapTx = swapQuote.transactionRequest;
 
-        // If swapSourceToken is ERC20, approve the LI.FI router first
+        // If swapSourceToken is ERC20, approve the LI.FI router for the exact quote amount
         if (swapSourceToken && !swapSourceToken.isNative) {
-          const swapFromAmountWei = parseUnits(swapSourceAmount, swapSourceToken.decimals);
+          const swapFromAmountWei = BigInt(swapQuote.action.fromAmount);
           setProgressLabel(`Approving ${swapSourceToken.symbol} for swap...`);
           const approvalHash = await writeContractAsync({
             address: swapSourceToken.address as `0x${string}`,
@@ -618,6 +673,72 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
                   <span key={tag} className="px-2.5 py-1 bg-primary/10 text-primary rounded-md text-[11px] font-medium">{tag}</span>
                 ))}
               </div>
+
+              {/* ── Session Cap / Wallet selector (always visible) ── */}
+              {isConnected && safeFlowAddress && (
+                <div className="border-t border-border pt-4">
+                  {suggestedResources.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="text-[11px] font-semibold">{t('vaultModal.savedResourcesTitle')}</div>
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                          {t('vaultModal.savedResourcesCount', { count: suggestedResources.length })}
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {suggestedResources.slice(0, 3).map(({ cap, wallet }) => {
+                          const selected = capId === cap.capId;
+                          const status = getCapStatus(cap);
+                          return (
+                            <button
+                              key={cap.capId}
+                              onClick={() => {
+                                setCapId(cap.capId);
+                                setWalletId(wallet.walletId);
+                                setError(null);
+                              }}
+                              className={`w-full rounded-xl border p-2.5 text-left transition ${selected ? 'border-primary/40 bg-primary/10 shadow-sm shadow-primary/10' : 'border-border bg-card/60 hover:border-primary/20 hover:bg-secondary/40'}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                                  <span className="text-xs font-semibold font-data truncate">{t('vaultModal.capPairLabel', { capId: cap.capId, walletId: wallet.walletId })}</span>
+                                  <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] ${status === 'ready' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-destructive/15 text-destructive'}`}>
+                                    {status === 'ready' ? t('vaultModal.capReadyBadge') : status === 'expired' ? t('vaultModal.capExpiredBadge') : t('vaultModal.capInactiveBadge')}
+                                  </span>
+                                  {lastUsed?.capId === cap.capId && (
+                                    <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                                      {t('vaultModal.lastUsedBadge')}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="shrink-0 text-[10px] font-semibold text-primary">{selected ? t('vaultModal.selectedResource') : t('vaultModal.useResource')}</span>
+                              </div>
+                              <div className="mt-0.5 text-[10px] text-muted-foreground truncate">
+                                {t('vaultModal.capAgentPair', { agent: cap.agentAddress.slice(0, 6) + '...' + cap.agentAddress.slice(-4), expiry: cap.expiresAt ? new Date(Number(cap.expiresAt) * 1000).toLocaleString() : '—' })}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs">
+                      <div className="font-semibold text-warning">{t('vaultModal.noSavedResourcesTitle')}</div>
+                      <p className="mt-1 leading-relaxed text-muted-foreground">
+                        {currentWallets.length > 0 ? t('vaultModal.noEligibleCaps') : t('vaultModal.noSavedResourcesDescription')}
+                      </p>
+                      {onOpenSettings && (
+                        <button
+                          onClick={() => { onOpenSettings(); onClose(); }}
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-[11px] font-semibold text-primary transition hover:border-primary/30 hover:bg-primary/15"
+                        >
+                          {t('vaultModal.openResourceCenter')}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ── Right: Deposit action ── */}
@@ -660,72 +781,6 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
                   {error && (
                     <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-xs">
                       {error}
-                    </div>
-                  )}
-
-                  {suggestedResources.length > 0 ? (
-                    <div className="rounded-2xl border border-border bg-secondary/30 p-3.5">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold">{t('vaultModal.savedResourcesTitle')}</div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5">{t('vaultModal.savedResourcesSubtitle')}</div>
-                        </div>
-                        <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                          {t('vaultModal.savedResourcesCount', { count: suggestedResources.length })}
-                        </div>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        {suggestedResources.slice(0, 3).map(({ cap, wallet }) => {
-                          const selected = capId === cap.capId;
-                          const status = getCapStatus(cap);
-                          return (
-                            <button
-                              key={cap.capId}
-                              onClick={() => {
-                                setCapId(cap.capId);
-                                setWalletId(wallet.walletId);
-                                setError(null);
-                              }}
-                              className={`w-full rounded-2xl border p-3 text-left transition ${selected ? 'border-primary/30 bg-primary/10 shadow-lg shadow-primary/5' : 'border-border bg-card/60 hover:border-primary/20 hover:bg-card'}`}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="space-y-1">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-semibold font-data">{t('vaultModal.capPairLabel', { capId: cap.capId, walletId: wallet.walletId })}</span>
-                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${status === 'ready' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-destructive/15 text-destructive'}`}>
-                                      {status === 'ready' ? t('vaultModal.capReadyBadge') : status === 'expired' ? t('vaultModal.capExpiredBadge') : t('vaultModal.capInactiveBadge')}
-                                    </span>
-                                    {lastUsed?.capId === cap.capId && (
-                                      <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                                        {t('vaultModal.lastUsedBadge')}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-[11px] text-muted-foreground">
-                                    {t('vaultModal.capAgentPair', { agent: cap.agentAddress.slice(0, 6) + '...' + cap.agentAddress.slice(-4), expiry: cap.expiresAt ? new Date(Number(cap.expiresAt) * 1000).toLocaleString() : '—' })}
-                                  </div>
-                                </div>
-                                <span className="text-xs font-semibold text-primary">{selected ? t('vaultModal.selectedResource') : t('vaultModal.useResource')}</span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border border-warning/20 bg-warning/10 p-3.5 text-sm">
-                      <div className="font-semibold">{t('vaultModal.noSavedResourcesTitle')}</div>
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                        {currentWallets.length > 0 ? t('vaultModal.noEligibleCaps') : t('vaultModal.noSavedResourcesDescription')}
-                      </p>
-                      {onOpenSettings && (
-                        <button
-                          onClick={() => { onOpenSettings(); onClose(); }}
-                          className="mt-3 inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition hover:border-primary/30 hover:bg-primary/15"
-                        >
-                          {t('vaultModal.openResourceCenter')}
-                        </button>
-                      )}
                     </div>
                   )}
 
@@ -835,7 +890,7 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
                     </p>
 
                     {capValidation && (
-                      <div className={`mb-3 rounded-xl border p-3 text-[11px] ${capValidation.tone === 'success' ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200' : capValidation.tone === 'error' ? 'border-destructive/20 bg-destructive/10 text-destructive' : 'border-border bg-secondary/40 text-muted-foreground'}`}>
+                      <div className={`mb-3 rounded-xl border p-3 text-[11px] ${capValidation.tone === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200' : capValidation.tone === 'error' ? 'border-destructive/20 bg-destructive/10 text-destructive' : 'border-border bg-secondary/40 text-muted-foreground'}`}>
                         <div className="font-semibold">{capValidation.message}</div>
                         {parsedCapData && !capNotFound && (
                           <div className="mt-2 space-y-1 font-data">
@@ -897,16 +952,16 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
                           )}
                         </div>
                         {insufficientUnderlying && (
-                          <div className="mb-2 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-2 text-xs">
-                            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" />
+                          <div className="mb-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-2 text-xs">
+                            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
                             <div className="flex-1">
-                              <div className="font-medium text-amber-300">Insufficient {tokenSymbol}</div>
+                              <div className="font-semibold text-amber-700 dark:text-amber-300">Insufficient {tokenSymbol}</div>
                               <button
                                 onClick={() => {
                                   setSwapMode(true);
                                   if (swapTokenOptions.length > 0) setSwapSourceToken(swapTokenOptions[0]);
                                 }}
-                                className="mt-1.5 inline-flex items-center gap-1 px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/20 rounded-lg text-amber-200 font-semibold transition"
+                                className="mt-1.5 inline-flex items-center gap-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg text-amber-700 dark:text-amber-200 font-semibold transition"
                               >
                                 <ArrowDownUp className="w-3 h-3" />
                                 Swap first via LI.FI
@@ -937,35 +992,54 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
                       </>
                     )}
 
-                    {/* Swap-mode section */}
+                    {/* Swap-mode section — DEX-style two-sided panel */}
                     {swapMode && (
-                      <div className="p-3 bg-primary/5 border border-primary/15 rounded-xl space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <div className="text-[10px] uppercase tracking-[0.14em] font-semibold text-primary/60 flex items-center gap-1">
+                      <div className="rounded-xl border border-primary/20 bg-card overflow-hidden">
+                        {/* Header */}
+                        <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
+                          <span className="text-[10px] uppercase tracking-[0.13em] font-semibold text-primary/70 flex items-center gap-1">
                             <ArrowDownUp className="w-3 h-3" />
-                            Swap via LI.FI → then deposit
-                          </div>
+                            Swap via LI.FI → deposit
+                          </span>
                           <button
-                            onClick={() => { setSwapMode(false); setSwapSourceToken(null); setSwapSourceAmount(''); setSwapQuote(null); }}
+                            onClick={() => {
+                              setSwapMode(false);
+                              setSwapSourceToken(null);
+                              setSwapSourceAmount('');
+                              setSwapTargetAmount('');
+                              setSwapPreview(null);
+                              setSwapQuote(null);
+                            }}
                             className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
                           >
                             Cancel
                           </button>
                         </div>
-                        <div>
-                          <label className="block text-[10px] uppercase tracking-wider text-muted-foreground mb-1 font-medium">
-                            Swap from
-                          </label>
-                          <div className="flex gap-2">
+
+                        {/* You Pay */}
+                        <div className="mx-2.5 mt-1 p-3 bg-input border border-border rounded-xl">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">You pay</span>
+                            {swapSourceToken && effectiveSwapSourceBalance && (
+                              <button
+                                onClick={() => { setSwapDirection('from'); setSwapSourceAmount(parseFloat(effectiveSwapSourceBalance.formatted).toFixed(6)); setSwapPreview(null); }}
+                                className="text-[10px] text-primary hover:underline font-data transition"
+                              >
+                                Max {parseFloat(effectiveSwapSourceBalance.formatted).toFixed(4)} {swapSourceToken.symbol}
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
                             <select
                               value={swapSourceToken?.address ?? ''}
                               onChange={e => {
                                 const tok = swapTokenOptions.find(x => x.address === e.target.value);
                                 setSwapSourceToken(tok ?? null);
+                                setSwapPreview(null);
                               }}
-                              className="flex-1 px-3 py-2 bg-input border border-border rounded-xl text-sm font-data focus:outline-none focus:ring-1 focus:ring-primary/40"
+                              className="shrink-0 px-2.5 py-1.5 bg-secondary border border-border rounded-lg text-sm font-semibold font-data focus:outline-none cursor-pointer"
                             >
-                              <option value="" disabled>Select token</option>
+                              <option value="" disabled>Select</option>
                               {swapTokenOptions.map(tok => (
                                 <option key={tok.address} value={tok.address}>{tok.symbol}</option>
                               ))}
@@ -974,20 +1048,71 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
                               type="number"
                               step="any"
                               min="0"
-                              value={swapSourceAmount}
-                              onChange={e => setSwapSourceAmount(e.target.value)}
+                              value={
+                                swapDirection === 'from'
+                                  ? swapSourceAmount
+                                  : (swapPreview && !swapPreviewLoading
+                                      ? parseFloat(formatUnits(BigInt(swapPreview.fromAmount), swapSourceToken?.decimals ?? 18)).toFixed(6)
+                                      : '')
+                              }
+                              onChange={e => { setSwapDirection('from'); setSwapSourceAmount(e.target.value); setSwapPreview(null); }}
                               placeholder="0.00"
-                              className="w-28 px-3 py-2 bg-input border border-border rounded-xl text-sm font-data focus:outline-none focus:ring-1 focus:ring-primary/40"
+                              className={`flex-1 min-w-0 text-right text-lg font-data font-semibold bg-transparent outline-none placeholder:text-muted-foreground/40 ${swapDirection === 'to' && !swapPreviewLoading ? 'text-muted-foreground' : 'text-foreground'}`}
                             />
                           </div>
-                          {swapSourceToken && effectiveSwapSourceBalance && (
-                            <div className="mt-1 text-right text-[10px] text-muted-foreground font-data">
-                              Balance: {parseFloat(effectiveSwapSourceBalance.formatted).toFixed(4)} {swapSourceToken.symbol}
-                            </div>
-                          )}
                         </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          Deposit amount ({tokenSymbol}) will be computed from swap output.
+
+                        {/* Swap arrow divider */}
+                        <div className="flex items-center justify-center py-1.5">
+                          <div className="w-7 h-7 rounded-lg bg-card border border-border flex items-center justify-center text-muted-foreground">
+                            <ArrowDownUp className="w-3.5 h-3.5" />
+                          </div>
+                        </div>
+
+                        {/* You Receive */}
+                        <div className="mx-2.5 p-3 bg-secondary/40 border border-border rounded-xl">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">You receive <span className="normal-case">(then deposit)</span></span>
+                            {underlyingBalance && (
+                              <span className="text-[10px] text-muted-foreground font-data">
+                                Bal {parseFloat(underlyingBalance.formatted).toFixed(4)} {tokenSymbol}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="shrink-0 px-2.5 py-1.5 bg-secondary/70 border border-border rounded-lg text-sm font-semibold font-data text-muted-foreground">
+                              {tokenSymbol}
+                            </div>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              value={
+                                swapDirection === 'to'
+                                  ? swapTargetAmount
+                                  : (swapPreview && !swapPreviewLoading
+                                      ? parseFloat(formatUnits(BigInt(swapPreview.toAmount), tokenDecimals)).toFixed(6)
+                                      : '')
+                              }
+                              onChange={e => { setSwapDirection('to'); setSwapTargetAmount(e.target.value); setSwapPreview(null); }}
+                              placeholder="0.00"
+                              className={`flex-1 min-w-0 text-right text-lg font-data font-semibold bg-transparent outline-none placeholder:text-muted-foreground/40 ${swapDirection === 'from' && !swapPreviewLoading ? 'text-muted-foreground' : 'text-foreground'}`}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Rate / loading */}
+                        <div className="px-3 py-2 min-h-[28px] flex items-center text-[10px] text-muted-foreground">
+                          {swapPreviewLoading ? (
+                            <span className="flex items-center gap-1.5">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Fetching rate...
+                            </span>
+                          ) : swapPreview ? (
+                            <span className="font-data">{swapPreview.rate}</span>
+                          ) : (
+                            <span className="italic opacity-60">Enter an amount on either side</span>
+                          )}
                         </div>
                       </div>
                     )}
@@ -998,12 +1123,16 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
                     disabled={
                       !walletId || !capId || capValidation?.tone === 'error' ||
                       (swapMode
-                        ? !swapSourceToken || !swapSourceAmount || parseFloat(swapSourceAmount) <= 0
+                        ? !swapSourceToken || (swapDirection === 'from'
+                            ? !swapSourceAmount || parseFloat(swapSourceAmount) <= 0
+                            : !swapTargetAmount || parseFloat(swapTargetAmount) <= 0)
                         : !amount || parseFloat(amount) <= 0)
                     }
                     className="w-full px-4 py-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity shadow-lg shadow-primary/20 disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    {swapMode ? `Swap ${swapSourceToken?.symbol ?? ''} + Deposit` : t('vaultModal.buildQuote')}
+                    {swapMode
+                      ? `Swap ${swapSourceToken?.symbol ?? ''} → ${tokenSymbol} + Deposit`
+                      : t('vaultModal.buildQuote')}
                   </button>
                   <p className="text-[10px] text-muted-foreground/50 text-center flex items-center justify-center gap-1">
                     <Shield className="w-3 h-3" />
@@ -1059,7 +1188,7 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
                   {/* Swap preview — shown when swap-before-deposit is active */}
                   {swapQuote && swapSourceToken && (
                     <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1.5 text-xs">
-                      <div className="text-[10px] uppercase tracking-[0.14em] font-semibold text-amber-400/70">Step 1 — Swap via LI.FI</div>
+                      <div className="text-[10px] uppercase tracking-[0.14em] font-semibold text-amber-700/80 dark:text-amber-400/70">Step 1 — Swap via LI.FI</div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">From</span>
                         <span className="font-data font-semibold">{swapSourceAmount} {swapSourceToken.symbol}</span>

@@ -50,6 +50,7 @@ export interface ComposerQuote {
     fromAmount: string;
   };
   estimate: {
+    fromAmount?: string;
     toAmount: string;
     executionDuration: number;
     gasCosts: { amountUSD: string }[];
