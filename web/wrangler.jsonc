@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "safeflow-web",
+	"name": "safeflow-web-lifi",
 	"main": ".open-next/worker.js",
 	"compatibility_date": "2024-12-30",
 	"compatibility_flags": [
@@ -17,7 +17,7 @@
 		{
 			"binding": "WORKER_SELF_REFERENCE",
 			// Must match the "name" field above
-			"service": "safeflow-web"
+			"service": "safeflow-web-lifi"
 		}
 	],
 	"kv_namespaces": [
