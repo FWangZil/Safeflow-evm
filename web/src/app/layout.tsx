@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
-import { Providers } from "./providers";
+import { DynamicProviders } from "./dynamic-providers";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -23,12 +23,14 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${outfit.variable} h-full antialiased`}
+      // "dark" matches defaultTheme in ThemeProvider – avoids flash before
+      // client hydration since providers are loaded with ssr: false.
+      className={`dark ${outfit.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <div id="app-root" className="flex flex-col min-h-full">
-          <Providers>{children}</Providers>
+          <DynamicProviders>{children}</DynamicProviders>
         </div>
       </body>
     </html>

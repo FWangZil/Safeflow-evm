@@ -3,6 +3,7 @@
 	"name": "safeflow-web-lifi",
 	"main": ".open-next/worker.js",
 	"compatibility_date": "2024-12-30",
+	"minify": true,
 	"compatibility_flags": [
 		// Enable Node.js API compatibility (required by @opennextjs/cloudflare)
 		"nodejs_compat",

@@ -18,7 +18,7 @@ const config = getDefaultConfig({
   appName: 'SafeFlow Yield Agent',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo',
   chains: walletChains,
-  ssr: true,
+  ssr: false,
 });
 
 const queryClient = new QueryClient();
