@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-import crypto from 'crypto';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
 
-const DB_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DB_DIR, 'audit.json');
+const KV_KEY = 'audit_entries';
 
 interface AuditEntry {
   id: string;
@@ -23,28 +20,33 @@ interface AuditEntry {
   status: 'pending' | 'executed' | 'failed';
 }
 
-function ensureDb(): AuditEntry[] {
-  if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, '[]');
-    return [];
-  }
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+async function sha256Hex(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
-function saveDb(entries: AuditEntry[]) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(entries, null, 2));
+async function readEntries(): Promise<AuditEntry[]> {
+  const { env } = getCloudflareContext();
+  const raw = await env.AUDIT_KV.get(KV_KEY);
+  return raw ? (JSON.parse(raw) as AuditEntry[]) : [];
+}
+
+async function writeEntries(entries: AuditEntry[]): Promise<void> {
+  const { env } = getCloudflareContext();
+  await env.AUDIT_KV.put(KV_KEY, JSON.stringify(entries));
 }
 
 export async function GET() {
-  const entries = ensureDb();
+  const entries = await readEntries();
   return NextResponse.json({ entries, total: entries.length });
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const entries = ensureDb();
 
     const payload = JSON.stringify({
       timestamp: body.timestamp || Date.now(),
@@ -55,7 +57,7 @@ export async function POST(req: NextRequest) {
       reasoning: body.reasoning,
     });
 
-    const evidenceHash = '0x' + crypto.createHash('sha256').update(payload).digest('hex');
+    const evidenceHash = '0x' + (await sha256Hex(payload));
 
     const entry: AuditEntry = {
       id: crypto.randomUUID(),
@@ -72,8 +74,9 @@ export async function POST(req: NextRequest) {
       status: 'pending',
     };
 
+    const entries = await readEntries();
     entries.push(entry);
-    saveDb(entries);
+    await writeEntries(entries);
 
     return NextResponse.json({ entry, evidenceHash });
   } catch (error) {
@@ -87,7 +90,7 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
     const { id, txHash, ipfsCid, status } = body;
 
-    const entries = ensureDb();
+    const entries = await readEntries();
     const entry = entries.find(e => e.id === id);
     if (!entry) {
       return NextResponse.json({ error: 'Audit entry not found' }, { status: 404 });
@@ -97,7 +100,7 @@ export async function PATCH(req: NextRequest) {
     if (ipfsCid) entry.ipfsCid = ipfsCid;
     if (status) entry.status = status;
 
-    saveDb(entries);
+    await writeEntries(entries);
     return NextResponse.json({ entry });
   } catch (error) {
     console.error('Audit update error:', error);
