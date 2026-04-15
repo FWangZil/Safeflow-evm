@@ -698,7 +698,7 @@ export default function SessionManager() {
               />
             </div>
             {walletStep === 'success' ? (
-              <div className="space-y-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+              <div className="space-y-3 rounded-2xl border border-primary/20 bg-primary/10 p-3 text-xs text-primary">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="w-4 h-4" />
                   <span>{t('settings.walletCreated')}</span>
@@ -730,29 +730,29 @@ export default function SessionManager() {
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t('settings.createCapDescription')}</p>
           <div className="mt-4 space-y-3">
-            {currentWallets.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {currentWallets.slice(0, 4).map(wallet => (
-                  <button
-                    key={`${wallet.savedForAddress}-${wallet.walletId}`}
-                    onClick={() => setCapForm(current => ({ ...current, walletId: wallet.walletId }))}
-                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${capForm.walletId === wallet.walletId ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border bg-secondary/40 text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {t('settings.walletChip', { walletId: wallet.walletId })}
-                  </button>
-                ))}
-              </div>
-            )}
-
             <div>
               <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{t('settings.walletId')}</label>
-              <input
-                type="number"
-                min="0"
-                value={capForm.walletId}
-                onChange={event => setCapForm(current => ({ ...current, walletId: event.target.value }))}
-                className="w-full rounded-xl border border-border bg-input px-3 py-2 text-sm font-data focus:outline-none focus:ring-1 focus:ring-primary/50"
-              />
+              {currentWallets.length > 0 ? (
+                <select
+                  value={capForm.walletId}
+                  onChange={event => setCapForm(current => ({ ...current, walletId: event.target.value }))}
+                  className="w-full rounded-xl border border-border bg-input px-3 py-2 text-sm font-data focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  {currentWallets.map(wallet => (
+                    <option key={`${wallet.savedForAddress}-${wallet.walletId}`} value={wallet.walletId}>
+                      {wallet.name ? `${wallet.name} · #${wallet.walletId}` : `#${wallet.walletId}`}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  value={capForm.walletId}
+                  onChange={event => setCapForm(current => ({ ...current, walletId: event.target.value }))}
+                  className="w-full rounded-xl border border-border bg-input px-3 py-2 text-sm font-data focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+              )}
             </div>
 
             <div>

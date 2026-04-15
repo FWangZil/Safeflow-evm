@@ -115,3 +115,13 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to update audit entry' }, { status: 500 });
   }
 }
+
+export async function DELETE() {
+  try {
+    await writeEntries([]);
+    return NextResponse.json({ cleared: true });
+  } catch (error) {
+    console.error('Audit clear error:', error);
+    return NextResponse.json({ error: 'Failed to clear audit entries' }, { status: 500 });
+  }
+}

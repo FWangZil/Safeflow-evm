@@ -11,6 +11,7 @@ import { SAFEFLOW_VAULT_ABI, getSafeFlowAddress } from '@/lib/contracts';
 interface PortfolioProps {
   onOpenExplore?: () => void;
   onOpenSettings?: () => void;
+  onOpenChat?: () => void;
 }
 
 interface PortfolioPosition {
@@ -90,9 +91,12 @@ interface WalletBalanceRowProps {
   symbol: string;
   decimals: number;
   chainId: number;
+  /** Total amount ever deposited into DeFi (wei), from audit trail */
+  depositedAmountRaw: bigint;
+  onOpenChat?: () => void;
 }
 
-function WalletBalanceRow({ walletId, tokenAddress, symbol, decimals, chainId }: WalletBalanceRowProps) {
+function WalletBalanceRow({ walletId, tokenAddress, symbol, decimals, chainId, depositedAmountRaw, onOpenChat }: WalletBalanceRowProps) {
   const safeFlowAddress = getSafeFlowAddress();
   const { writeContractAsync } = useWriteContract();
   const [withdrawTx, setWithdrawTx] = useState<`0x${string}` | undefined>();
@@ -119,9 +123,16 @@ function WalletBalanceRow({ walletId, tokenAddress, symbol, decimals, chainId }:
 
   const balance = typeof rawBalance === 'bigint' ? rawBalance : BigInt(0);
   const factor = BigInt(10 ** (decimals || 18));
-  const whole = balance / factor;
-  const frac = (balance % factor).toString().padStart(decimals || 18, '0').replace(/0+$/, '').slice(0, 4);
-  const displayBalance = frac ? `${whole}.${frac}` : `${whole}`;
+
+  function formatRaw(raw: bigint): string {
+    const whole = raw / factor;
+    const frac = (raw % factor).toString().padStart(decimals || 18, '0').replace(/0+$/, '').slice(0, 4);
+    return frac ? `${whole}.${frac}` : `${whole}`;
+  }
+
+  const displayBalance = formatRaw(balance);
+  const displayDeposited = formatRaw(depositedAmountRaw);
+  const isDeployed = balance === BigInt(0) && depositedAmountRaw > BigInt(0);
 
   const handleWithdrawAll = async () => {
     if (balance === BigInt(0)) return;
@@ -142,8 +153,6 @@ function WalletBalanceRow({ walletId, tokenAddress, symbol, decimals, chainId }:
     }
   };
 
-  const isDeployed = balance === BigInt(0);
-
   return (
     <tr className="border-b border-border/50 last:border-0 hover:bg-primary/[0.03] transition-colors">
       <td className="px-4 py-3">
@@ -162,35 +171,56 @@ function WalletBalanceRow({ walletId, tokenAddress, symbol, decimals, chainId }:
         </span>
       </td>
       <td className="px-4 py-3 text-right font-data text-xs">
-        {isDeployed
-          ? <span className="text-muted-foreground/60 italic text-[10px]">deployed to vault</span>
-          : `${displayBalance} ${symbol}`}
+        {isDeployed ? (
+          <div className="space-y-0.5">
+            <div className="text-muted-foreground/50 text-[10px] line-through">{displayDeposited} {symbol}</div>
+            <div className="text-amber-400 text-[10px] font-semibold">0 in SafeFlow</div>
+          </div>
+        ) : (
+          <span className="font-semibold">{displayBalance} {symbol}</span>
+        )}
       </td>
       <td className="px-4 py-3 text-right font-data font-semibold">
         {isDeployed
           ? <span className="text-muted-foreground">—</span>
-          : (() => { const usd = estimateUsd(displayBalance, symbol); return usd ? `≈ $${usd}` : <span className="text-muted-foreground">—</span>; })()}
+          : (() => { const usd = estimateUsd(displayBalance, symbol); return usd ? `≈ $${usd}` : <span className="text-muted-foreground">—</span>; })()
+        }
       </td>
       <td className="px-4 py-3 text-right">
         {txError && <div className="text-destructive text-[10px] mb-1">{txError}</div>}
-        {isDeployed
-          ? <span className="text-[10px] text-muted-foreground/50">in external vault</span>
-          : (
-            <button
-              onClick={handleWithdrawAll}
-              disabled={withdrawing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-[11px] font-semibold hover:bg-primary/20 transition-colors disabled:opacity-50"
-            >
-              {withdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowDownToLine className="w-3 h-3" />}
-              {withdrawing ? 'Withdrawing…' : 'Withdraw All'}
-            </button>
-          )}
+        {isDeployed ? (
+          <div className="flex flex-col items-end gap-1">
+            <div className="text-[10px] text-amber-400/80 font-medium">Deployed to DeFi vault</div>
+            {onOpenChat ? (
+              <button
+                onClick={onOpenChat}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-400/20 text-amber-300 text-[10px] font-semibold hover:bg-amber-500/20 transition-colors"
+              >
+                <ArrowDownToLine className="w-2.5 h-2.5" />
+                Ask AI to Recall
+              </button>
+            ) : (
+              <span className="text-[10px] text-muted-foreground/50">Ask AI agent to recall</span>
+            )}
+          </div>
+        ) : balance > BigInt(0) ? (
+          <button
+            onClick={handleWithdrawAll}
+            disabled={withdrawing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-[11px] font-semibold hover:bg-primary/20 transition-colors disabled:opacity-50"
+          >
+            {withdrawing ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowDownToLine className="w-3 h-3" />}
+            {withdrawing ? 'Withdrawing…' : 'Withdraw to Wallet'}
+          </button>
+        ) : (
+          <span className="text-[10px] text-muted-foreground/50">No balance</span>
+        )}
       </td>
     </tr>
   );
 }
 
-export default function Portfolio({ onOpenExplore, onOpenSettings }: PortfolioProps) {
+export default function Portfolio({ onOpenExplore, onOpenSettings, onOpenChat }: PortfolioProps) {
   const { t } = useTranslation();
   const { address, isConnected } = useAccount();
   const { currentWallets, currentAgentCaps } = useSafeFlowResources();
@@ -398,6 +428,14 @@ export default function Portfolio({ onOpenExplore, onOpenSettings }: PortfolioPr
       {/* SafeFlow Wallet Balances — live on-chain reads (local fork only) */}
       {LOCAL_FORK_ENABLED && auditEntries.some(e => e.walletId && e.tokenAddress) && (() => {
         const seen = new Set<string>();
+        // Aggregate total deposited per (walletId, tokenAddress) pair
+        const depositedTotals = new Map<string, bigint>();
+        for (const e of auditEntries) {
+          if (!e.walletId || !e.tokenAddress) continue;
+          const key = `${e.walletId}:${e.tokenAddress}`;
+          const prev = depositedTotals.get(key) ?? BigInt(0);
+          try { depositedTotals.set(key, prev + BigInt(e.amount)); } catch { /* ignore */ }
+        }
         const pairs = auditEntries
           .filter(e => e.walletId && e.tokenAddress)
           .filter(e => {
@@ -410,7 +448,7 @@ export default function Portfolio({ onOpenExplore, onOpenSettings }: PortfolioPr
           <div className="border border-primary/20 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 bg-primary/5 border-b border-primary/20 text-[11px] text-primary font-semibold uppercase tracking-wider flex items-center gap-2">
               <ArrowDownToLine className="w-3.5 h-3.5" />
-              SafeFlow Wallet Balances (available to withdraw)
+              SafeFlow Wallet Balances
             </div>
             <table className="w-full text-sm">
               <thead>
@@ -432,12 +470,14 @@ export default function Portfolio({ onOpenExplore, onOpenSettings }: PortfolioPr
                     symbol={e.token}
                     decimals={e.decimals ?? 18}
                     chainId={e.chainId ?? LOCAL_FORK_CHAIN_ID}
+                    depositedAmountRaw={depositedTotals.get(`${e.walletId}:${e.tokenAddress}`) ?? BigInt(0)}
+                    onOpenChat={onOpenChat}
                   />
                 ))}
               </tbody>
             </table>
             <div className="px-4 py-2 bg-secondary/20 text-[10px] text-muted-foreground/60">
-              Reads live from SafeFlowVault · balance is 0 after executeDeposit routes funds to vault
+              Balance reads live from SafeFlowVault on-chain. When funds are deployed to a DeFi vault, ask the AI agent to recall them — it will use <span className="font-mono">executeCall()</span> to credit them back here.
             </div>
           </div>
         );

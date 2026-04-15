@@ -267,7 +267,7 @@ export default function PageApp() {
                 {t('portfolio.subtitle')}
               </p>
             </div>
-            <Portfolio onOpenExplore={() => setActiveTab('explore')} onOpenSettings={() => setActiveTab('settings')} />
+            <Portfolio onOpenExplore={() => setActiveTab('explore')} onOpenSettings={() => setActiveTab('settings')} onOpenChat={() => setActiveTab('chat')} />
           </div>
         )}
 
