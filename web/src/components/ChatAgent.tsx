@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAccount } from 'wagmi';
-import { Send, Bot, User, Sparkles, Loader2, ArrowRight, Zap, TrendingUp, Shield } from 'lucide-react';import ReactMarkdown from 'react-markdown';import type { ChatMessage, EarnVault } from '@/types';
+import { Send, Bot, User, Sparkles, Loader2, ArrowRight, Zap, TrendingUp, Shield } from 'lucide-react';import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';import type { ChatMessage, EarnVault } from '@/types';
 import { formatApy, formatTvl } from '@/lib/earn-api';
 import { useTranslation } from '@/i18n';
 import { useSafeFlowResources } from '@/lib/safeflow-resources';
@@ -196,6 +197,7 @@ export default function ChatAgent({ onSelectVault, onOpenSettings }: ChatAgentPr
                   >
                     {msg.role === 'assistant' ? (
                       <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
                         components={{
                           p: ({ children }) => <p className="mb-1.5 last:mb-0">{children}</p>,
                           ul: ({ children }) => <ul className="list-disc pl-4 mb-1.5 space-y-0.5">{children}</ul>,
@@ -208,6 +210,16 @@ export default function ChatAgent({ onSelectVault, onOpenSettings }: ChatAgentPr
                           h1: ({ children }) => <h1 className="text-base font-bold mb-1.5">{children}</h1>,
                           h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
                           h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                          table: ({ children }) => (
+                            <div className="overflow-x-auto mb-2">
+                              <table className="w-full text-xs border-collapse">{children}</table>
+                            </div>
+                          ),
+                          thead: ({ children }) => <thead className="border-b border-white/20">{children}</thead>,
+                          tbody: ({ children }) => <tbody>{children}</tbody>,
+                          tr: ({ children }) => <tr className="border-b border-white/10 last:border-0">{children}</tr>,
+                          th: ({ children }) => <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground">{children}</th>,
+                          td: ({ children }) => <td className="px-2 py-1.5 font-data">{children}</td>,
                         }}
                       >
                         {msg.content}
