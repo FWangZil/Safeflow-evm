@@ -7,6 +7,8 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle,
+  ChevronDown,
+  ChevronUp,
   Copy,
   ExternalLink,
   Key,
@@ -128,6 +130,7 @@ export default function SessionManager() {
 
   const [queryCapId, setQueryCapId] = useState('');
   const [queryEnabled, setQueryEnabled] = useState(false);
+  const [expandedCapId, setExpandedCapId] = useState<string | null>(null);
 
   const { data: capData } = useReadContract({
     address: CONTRACT_ADDRESS,
@@ -611,15 +614,49 @@ export default function SessionManager() {
                       <span className="rounded-full border border-border bg-card/80 px-2.5 py-1">{cap.source === 'created' ? t('settings.sourceCreated') : cap.source === 'synced-chain' ? t('settings.sourceSyncedChain') : t('settings.sourceImported')}</span>
                       <button
                         onClick={() => {
-                          setQueryCapId(cap.capId);
-                          setQueryEnabled(true);
+                          const next = expandedCapId === cap.capId ? null : cap.capId;
+                          setExpandedCapId(next);
+                          if (next) {
+                            setQueryCapId(cap.capId);
+                            setQueryEnabled(true);
+                          }
                         }}
                         className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-primary transition hover:border-primary/30 hover:bg-primary/15"
                       >
+                        {expandedCapId === cap.capId ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                         {t('settings.useForQuery')}
-                        <ArrowRight className="w-3 h-3" />
                       </button>
                     </div>
+
+                    {/* Inline inspect panel */}
+                    {expandedCapId === cap.capId && (
+                      <div className="mt-3 rounded-xl border border-border bg-background/60 p-3 text-xs font-data space-y-1.5">
+                        {!queriedCap || (queryCapId !== cap.capId) ? (
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Loading from chain…
+                          </div>
+                        ) : queriedCapMissing ? (
+                          <div className="text-destructive">{t('settings.capNotFound')}</div>
+                        ) : (
+                          <>
+                            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Wallet ID</span><span>{String(queriedCap.walletId)}</span></div>
+                            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Agent</span><span className="max-w-[200px] truncate">{String(queriedCap.agent)}</span></div>
+                            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Max / Interval</span><span>{String(queriedCap.maxSpendPerInterval)}</span></div>
+                            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Max Total</span><span>{String(queriedCap.maxSpendTotal)}</span></div>
+                            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Total Spent</span><span>{String(queriedCap.totalSpent)}</span></div>
+                            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Status</span><span>{getCapStatusLabel(queriedCap, t)}</span></div>
+                            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Expires</span><span>{formatExpiry(queriedCap.expiresAt)}</span></div>
+                            {allowanceData && (
+                              <>
+                                <div className="border-t border-border pt-1.5" />
+                                <div className="flex justify-between gap-3"><span className="text-muted-foreground">Interval Remaining</span><span>{String((allowanceData as RemainingAllowanceData)[0])}</span></div>
+                                <div className="flex justify-between gap-3"><span className="text-muted-foreground">Total Remaining</span><span>{String((allowanceData as RemainingAllowanceData)[1])}</span></div>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))
               )}
