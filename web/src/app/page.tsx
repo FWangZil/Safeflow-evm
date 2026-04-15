@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
-import { AlertTriangle, BarChart3, Globe2, MessageSquare, Settings, Shield, TrendingUp } from 'lucide-react';
+import { AlertTriangle, BarChart3, Droplets, Globe2, MessageSquare, Settings, Shield, TrendingUp } from 'lucide-react';
 import VaultExplorer from '@/components/VaultExplorer';
 import ChatAgent from '@/components/ChatAgent';
 import DepositModal from '@/components/DepositModal';
@@ -12,7 +12,7 @@ import SessionManager from '@/components/SessionManager';
 import ThemeToggle from '@/components/ThemeToggle';
 import LangToggle from '@/components/LangToggle';
 import { useTranslation } from '@/i18n';
-import { getAppRuntimeMode } from '@/lib/chains';
+import { getAppRuntimeMode, LOCAL_FORK_RPC_URL } from '@/lib/chains';
 import { useSafeFlowResources } from '@/lib/safeflow-resources';
 import type { EarnVault } from '@/types';
 
@@ -22,8 +22,9 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('chat');
   const [selectedVault, setSelectedVault] = useState<EarnVault | null>(null);
   const { t } = useTranslation();
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const { currentWallets, currentAgentCaps } = useSafeFlowResources();
+  const [faucetState, setFaucetState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const runtimeMode = getAppRuntimeMode();
   const needsWalletSetup = isConnected && currentWallets.length === 0;
   const needsCapSetup = isConnected && currentWallets.length > 0 && currentAgentCaps.length === 0;
@@ -31,6 +32,35 @@ export default function Home() {
 
   const handleSelectVault = (vault: EarnVault) => {
     setSelectedVault(vault);
+  };
+
+  const fundWithTestUSDC = async () => {
+    if (!address) return;
+    const WHALE = '0x20FE51A9229EEf2cF8Ad9E89d91CAb9312cF3b7A';
+    const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+    const amount = BigInt(1000) * BigInt(1_000_000); // 1000 USDC (6 decimals)
+    const paddedAddr = address.slice(2).padStart(64, '0');
+    const paddedAmount = amount.toString(16).padStart(64, '0');
+    const data = `0xa9059cbb${paddedAddr}${paddedAmount}`;
+    setFaucetState('loading');
+    try {
+      const post = (method: string, params: unknown[], id: number) =>
+        fetch(LOCAL_FORK_RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method, params, id }),
+        }).then(r => r.json());
+      await post('anvil_impersonateAccount', [WHALE], 1);
+      const txRes = await post('eth_sendTransaction', [{ from: WHALE, to: USDC, data }], 2);
+      if (txRes.error) throw new Error(txRes.error.message);
+      await post('anvil_stopImpersonatingAccount', [WHALE], 3);
+      setFaucetState('done');
+      setTimeout(() => setFaucetState('idle'), 3000);
+    } catch (err) {
+      console.error('[Dev faucet]', err);
+      setFaucetState('error');
+      setTimeout(() => setFaucetState('idle'), 3000);
+    }
   };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -100,6 +130,29 @@ export default function Home() {
                 {runtimeMode.isLocalFork ? <AlertTriangle className="w-3.5 h-3.5" /> : <Globe2 className="w-3.5 h-3.5" />}
                 <span>{runtimeBadgeLabel}</span>
               </div>
+              {runtimeMode.isLocalFork && isConnected && (
+                <button
+                  onClick={fundWithTestUSDC}
+                  disabled={faucetState === 'loading'}
+                  title="Dev: send 1000 test USDC to your wallet via Anvil impersonation"
+                  className={`hidden sm:inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors disabled:opacity-60 ${
+                    faucetState === 'done'
+                      ? 'border-emerald-500/50 bg-emerald-50 text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/10 dark:text-emerald-300'
+                      : faucetState === 'error'
+                      ? 'border-red-400/50 bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
+                      : 'border-amber-500/40 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20'
+                  }`}
+                >
+                  <Droplets className="w-3 h-3" />
+                  {faucetState === 'loading'
+                    ? t('devFaucet.loading')
+                    : faucetState === 'done'
+                    ? t('devFaucet.success')
+                    : faucetState === 'error'
+                    ? t('devFaucet.error')
+                    : t('devFaucet.button')}
+                </button>
+              )}
               <LangToggle />
               <ThemeToggle />
               <ConnectButton.Custom>

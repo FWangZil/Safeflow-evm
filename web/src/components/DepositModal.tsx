@@ -56,6 +56,19 @@ function getCapStatus(cap: { active?: boolean; expiresAt?: string | bigint }) {
   return 'ready';
 }
 
+/** Throws a descriptive error if the on-chain transaction reverted. */
+async function assertReceipt(
+  publicClient: NonNullable<ReturnType<typeof usePublicClient>>,
+  hash: `0x${string}`,
+  label: string,
+) {
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status === 'reverted') {
+    throw new Error(`Transaction reverted on-chain: ${label} (${hash.slice(0, 10)}…)`);
+  }
+  return receipt;
+}
+
 export default function DepositModal({ vault, onClose, onOpenSettings }: DepositModalProps) {
   const { t } = useTranslation();
   const { address, isConnected, chainId } = useAccount();
@@ -237,6 +250,8 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
   }, [address, capId, capNotFound, isCapLoading, parsedCapData, t]);
 
   // ── Debounced swap preview (auto-computes the other side as user types) ──
+  // LI.FI /v1/quote only accepts fromAmount, so for the "to" direction we use
+  // a two-step approach: reference quote → derive rate → final quote.
   useEffect(() => {
     if (!swapMode || !swapSourceToken || !underlyingToken) { setSwapPreview(null); return; }
     const activeAmount = swapDirection === 'from' ? swapSourceAmount : swapTargetAmount;
@@ -247,30 +262,67 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
 
     swapPreviewTimer.current = setTimeout(async () => {
       try {
-        const params = new URLSearchParams({
+        const baseParams = {
           fromChain: String(vault.chainId),
           toChain: String(vault.chainId),
           fromToken: swapSourceToken.address,
           toToken: underlyingToken.address,
           fromAddress: address ?? ZERO_ADDRESS,
           toAddress: address ?? ZERO_ADDRESS,
-        });
+        };
+
+        let finalFromAmt: string;
+        let finalToAmt: string;
+
         if (swapDirection === 'from') {
-          params.set('fromAmount', parseUnits(swapSourceAmount, swapSourceToken.decimals).toString());
+          // Direct: user typed fromAmount → get toAmount
+          const params = new URLSearchParams({
+            ...baseParams,
+            fromAmount: parseUnits(swapSourceAmount, swapSourceToken.decimals).toString(),
+          });
+          const res = await fetch(`/api/earn/quote?${params}`);
+          if (!res.ok) throw new Error('preview failed');
+          const data: ComposerQuote = await res.json();
+          finalFromAmt = data.action.fromAmount;
+          finalToAmt = data.estimate.toAmount;
         } else {
-          params.set('toAmount', parseUnits(swapTargetAmount, tokenDecimals).toString());
+          // Reverse: user typed desired toAmount (e.g. "10 USDC")
+          // LI.FI doesn't accept toAmount, so we:
+          // 1. Fetch a reference quote for 1 unit of fromToken to get the rate
+          // 2. Compute estimated fromAmount = targetTo / rate
+          // 3. Fetch the actual quote with that fromAmount
+          const refFromWei = parseUnits('1', swapSourceToken.decimals);
+          const refParams = new URLSearchParams({ ...baseParams, fromAmount: refFromWei.toString() });
+          const refRes = await fetch(`/api/earn/quote?${refParams}`);
+          if (!refRes.ok) throw new Error('ref quote failed');
+          const refData: ComposerQuote = await refRes.json();
+
+          const refToHuman = parseFloat(formatUnits(BigInt(refData.estimate.toAmount), tokenDecimals));
+          if (refToHuman <= 0) throw new Error('zero rate');
+
+          // rate: how many toToken per 1 fromToken
+          const targetToHuman = parseFloat(swapTargetAmount);
+          const estimatedFromHuman = targetToHuman / refToHuman;
+
+          // Represent as wei safely — cap to swapSourceToken.decimals precision
+          const decimalsToUse = Math.min(swapSourceToken.decimals, 12);
+          const estimatedFromWei = parseUnits(estimatedFromHuman.toFixed(decimalsToUse), swapSourceToken.decimals);
+
+          // Actual quote with the computed fromAmount
+          const actualParams = new URLSearchParams({ ...baseParams, fromAmount: estimatedFromWei.toString() });
+          const actualRes = await fetch(`/api/earn/quote?${actualParams}`);
+          if (!actualRes.ok) throw new Error('actual quote failed');
+          const actualData: ComposerQuote = await actualRes.json();
+          finalFromAmt = actualData.action.fromAmount;
+          finalToAmt = actualData.estimate.toAmount;
         }
-        const res = await fetch(`/api/earn/quote?${params}`);
-        if (!res.ok) throw new Error('preview failed');
-        const data: ComposerQuote = await res.json();
-        const fromAmt = data.action.fromAmount;
-        const toAmt = data.estimate.toAmount;
-        const fromHuman = parseFloat(formatUnits(BigInt(fromAmt), swapSourceToken.decimals));
-        const toHuman = parseFloat(formatUnits(BigInt(toAmt), tokenDecimals));
+
+        const fromHuman = parseFloat(formatUnits(BigInt(finalFromAmt), swapSourceToken.decimals));
+        const toHuman = parseFloat(formatUnits(BigInt(finalToAmt), tokenDecimals));
         const rate = fromHuman > 0 ? (toHuman / fromHuman).toFixed(4) : '—';
         setSwapPreview({
-          fromAmount: fromAmt,
-          toAmount: toAmt,
+          fromAmount: finalFromAmt,
+          toAmount: finalToAmt,
           rate: `1 ${swapSourceToken.symbol} ≈ ${rate} ${tokenSymbol}`,
         });
       } catch {
@@ -325,6 +377,34 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
       let depositFromAmount: string;
 
       if (swapMode && swapSourceToken) {
+        // If we already have a preview quote from the debounced effect, reuse it
+        // to avoid an extra round-trip. Otherwise recompute.
+        let swapFromAmountWei: bigint;
+
+        if (swapDirection === 'from') {
+          swapFromAmountWei = parseUnits(swapSourceAmount, swapSourceToken.decimals);
+        } else {
+          // Reverse direction: compute fromAmount via reference quote (same algorithm as preview)
+          const refFromWei = parseUnits('1', swapSourceToken.decimals);
+          const refRes = await fetch(`/api/earn/quote?${new URLSearchParams({
+            fromChain: String(vault.chainId),
+            toChain: String(vault.chainId),
+            fromToken: swapSourceToken.address,
+            toToken: underlyingToken.address,
+            fromAddress: address,
+            toAddress: address,
+            fromAmount: refFromWei.toString(),
+          })}`);
+          if (!refRes.ok) throw new Error('Reference quote failed');
+          const refData: ComposerQuote = await refRes.json();
+          const refToHuman = parseFloat(formatUnits(BigInt(refData.estimate.toAmount), tokenDecimals));
+          if (refToHuman <= 0) throw new Error('Could not determine exchange rate');
+          const targetToHuman = parseFloat(swapTargetAmount);
+          const estimatedFromHuman = targetToHuman / refToHuman;
+          const decimalsToUse = Math.min(swapSourceToken.decimals, 12);
+          swapFromAmountWei = parseUnits(estimatedFromHuman.toFixed(decimalsToUse), swapSourceToken.decimals);
+        }
+
         const swapParams = new URLSearchParams({
           fromChain: String(vault.chainId),
           toChain: String(vault.chainId),
@@ -332,12 +412,8 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
           toToken: underlyingToken.address,
           fromAddress: address,
           toAddress: address,
+          fromAmount: swapFromAmountWei.toString(),
         });
-        if (swapDirection === 'from') {
-          swapParams.set('fromAmount', parseUnits(swapSourceAmount, swapSourceToken.decimals).toString());
-        } else {
-          swapParams.set('toAmount', parseUnits(swapTargetAmount, tokenDecimals).toString());
-        }
         const swapRes = await fetch(`/api/earn/quote?${swapParams.toString()}`);
         if (!swapRes.ok) {
           const text = await swapRes.text().catch(() => '');
@@ -419,7 +495,7 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
             args: [swapTx.to as `0x${string}`, swapFromAmountWei],
             chainId: executionChainId,
           });
-          await publicClient.waitForTransactionReceipt({ hash: approvalHash });
+          await assertReceipt(publicClient, approvalHash, `Approve ${swapSourceToken.symbol} for swap`);
         }
 
         setProgressLabel(`Swapping ${swapSourceToken?.symbol ?? 'token'} → ${tokenSymbol} via LI.FI...`);
@@ -429,7 +505,7 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
           value: BigInt(swapTx.value || '0'),
           chainId: executionChainId,
         });
-        await publicClient.waitForTransactionReceipt({ hash: swapHash });
+        await assertReceipt(publicClient, swapHash, `Swap ${swapSourceToken?.symbol ?? 'token'} → ${tokenSymbol}`);
         setProgressLabel('');
       }
 
@@ -511,7 +587,7 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
           args: [safeFlowAddress, amountWei],
           chainId: executionChainId,
         });
-        await publicClient.waitForTransactionReceipt({ hash: approvalHash });
+        await assertReceipt(publicClient, approvalHash, `Approve ${tokenSymbol} to SafeFlowVault`);
       }
 
       setProgressLabel('Funding SafeFlow wallet...');
@@ -522,7 +598,7 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
         args: [BigInt(walletId), underlyingToken.address as `0x${string}`, amountWei],
         chainId: executionChainId,
       });
-      await publicClient.waitForTransactionReceipt({ hash: fundHash });
+      await assertReceipt(publicClient, fundHash, 'Fund SafeFlow wallet');
 
       setProgressLabel('Executing SessionCap-protected deposit...');
       const execHash = await writeContractAsync({
@@ -540,7 +616,7 @@ export default function DepositModal({ vault, onClose, onOpenSettings }: Deposit
         chainId: executionChainId,
       });
 
-      await publicClient.waitForTransactionReceipt({ hash: execHash });
+      await assertReceipt(publicClient, execHash, 'executeDeposit via SafeFlowVault');
       setTxHash(execHash);
 
       if (parsedCapData && !knownCap) {

@@ -213,6 +213,12 @@
     "badgeTooltipLocal": "Execution: {executionChain} · Source: {sourceChain} · RPC: {rpcHost}",
     "badgeTooltipBase": "Execution: {executionChain} · Source: {sourceChain}"
   },
+  "devFaucet": {
+    "button": "Get USDC",
+    "loading": "Sending…",
+    "success": "1000 USDC sent!",
+    "error": "Faucet failed"
+  },
   "common": {
     "na": "N/A"
   }

@@ -213,6 +213,12 @@
     "badgeTooltipLocal": "执行链：{executionChain} · 来源链：{sourceChain} · RPC：{rpcHost}",
     "badgeTooltipBase": "执行链：{executionChain} · 来源链：{sourceChain}"
   },
+  "devFaucet": {
+    "button": "获取 USDC",
+    "loading": "发送中…",
+    "success": "已转入 1000 USDC！",
+    "error": "水龙头出错"
+  },
   "common": {
     "na": "不适用"
   }
