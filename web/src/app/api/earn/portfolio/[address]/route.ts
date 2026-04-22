@@ -8,8 +8,12 @@ export async function GET(
 ) {
   try {
     const { address } = await params;
-    const res = await fetch(`${EARN_API}/v1/earn/portfolio/${address}/positions`, {
-      headers: { 'Accept': 'application/json' },
+    const apiKey = process.env.LIFI_API_KEY;
+    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    if (apiKey) headers['x-lifi-api-key'] = apiKey;
+
+    const res = await fetch(`${EARN_API}/v1/portfolio/${address}/positions`, {
+      headers,
     });
 
     if (!res.ok) {

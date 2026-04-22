@@ -1,6 +1,11 @@
 import type { EarnVault, EarnVaultsResponse, PortfolioPosition } from '@/types';
 
-const EARN_API_BASE = typeof window !== 'undefined' ? '' : 'https://earn.li.fi';
+function ssrFetchInit(): RequestInit {
+  const apiKey = typeof process !== 'undefined' ? process.env.LIFI_API_KEY : undefined;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (apiKey) headers['x-lifi-api-key'] = apiKey;
+  return { headers };
+}
 
 export interface VaultFilters {
   chainId?: number;
@@ -26,8 +31,8 @@ export async function fetchVaults(filters: VaultFilters = {}): Promise<EarnVault
   const isClient = typeof window !== 'undefined';
   const url = isClient
     ? `/api/earn/vaults?${params.toString()}`
-    : `https://earn.li.fi/v1/earn/vaults?${params.toString()}`;
-  const res = await fetch(url);
+    : `https://earn.li.fi/v1/vaults?${params.toString()}`;
+  const res = await fetch(url, isClient ? undefined : ssrFetchInit());
 
   if (!res.ok) {
     throw new Error(`Earn API error: ${res.status} ${res.statusText}`);
@@ -84,8 +89,8 @@ export async function fetchPortfolio(walletAddress: string): Promise<PortfolioPo
   const isClient = typeof window !== 'undefined';
   const url = isClient
     ? `/api/earn/portfolio/${walletAddress}`
-    : `https://earn.li.fi/v1/earn/portfolio/${walletAddress}/positions`;
-  const res = await fetch(url);
+    : `https://earn.li.fi/v1/portfolio/${walletAddress}/positions`;
+  const res = await fetch(url, isClient ? undefined : ssrFetchInit());
 
   if (!res.ok) {
     if (res.status === 404) return [];

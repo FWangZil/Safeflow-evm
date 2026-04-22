@@ -15,7 +15,9 @@
     "explore": "Explore",
     "portfolio": "Portfolio",
     "settings": "Settings",
-    "connectWallet": "Connect Wallet"
+    "connectWallet": "Connect Wallet",
+    "demo": "Demo",
+    "demoTooltip": "Watch the SafeFlow demo video"
   },
   "chat": {
     "title": "AI Yield Agent",

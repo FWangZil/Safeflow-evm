@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
-import { BarChart3, Droplets, MessageSquare, Settings, TrendingUp } from 'lucide-react';
+import { BarChart3, Droplets, MessageSquare, PlayCircle, Settings, TrendingUp } from 'lucide-react';
 import VaultExplorer from '@/components/VaultExplorer';
 import ChatAgent from '@/components/ChatAgent';
 import DepositModal from '@/components/DepositModal';
@@ -145,6 +145,16 @@ export default function PageApp() {
                     : t('devFaucet.button')}
                 </button>
               )}
+              <a
+                href="/video"
+                target="_blank"
+                rel="noopener noreferrer"
+                title={t('nav.demoTooltip')}
+                className="hidden sm:inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20 transition-colors"
+              >
+                <PlayCircle className="w-3.5 h-3.5" />
+                {t('nav.demo')}
+              </a>
               <LangToggle />
               <ThemeToggle />
               <ConnectButton.Custom>
@@ -298,6 +308,15 @@ export default function PageApp() {
             {runtimeFooterLabel}
           </span>
           <span>{t('footer.right')}</span>
+          <a
+            href="/video"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="sm:hidden inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20 transition-colors"
+          >
+            <PlayCircle className="w-3.5 h-3.5" />
+            {t('nav.demo')}
+          </a>
         </div>
       </footer>
 

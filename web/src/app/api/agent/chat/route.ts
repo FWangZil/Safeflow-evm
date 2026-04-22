@@ -175,7 +175,11 @@ async function fetchAndFilterVaults(params: {
   if (params.chainId) qs.set('chainId', String(params.chainId));
   qs.set('limit', '100');
 
-  const res = await fetch(`${EARN_API}/v1/earn/vaults?${qs.toString()}`);
+  const apiKey = process.env.LIFI_API_KEY;
+  const headers: Record<string, string> = { 'Accept': 'application/json' };
+  if (apiKey) headers['x-lifi-api-key'] = apiKey;
+
+  const res = await fetch(`${EARN_API}/v1/vaults?${qs.toString()}`, { headers });
   if (!res.ok) throw new Error(`Earn API: ${res.status}`);
 
   const json = await res.json() as { data?: any[]; [key: string]: any };

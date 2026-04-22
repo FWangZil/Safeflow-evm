@@ -11,10 +11,14 @@ export async function GET(req: NextRequest) {
       params.set(key, value);
     }
 
-    const res = await fetch(`${EARN_API}/v1/earn/vaults?${params.toString()}`, {
-      headers: {
-        'Accept': 'application/json',
-      },
+    const apiKey = process.env.LIFI_API_KEY;
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
+    if (apiKey) headers['x-lifi-api-key'] = apiKey;
+
+    const res = await fetch(`${EARN_API}/v1/vaults?${params.toString()}`, {
+      headers,
     });
 
     if (!res.ok) {

@@ -15,7 +15,9 @@
     "explore": "探索",
     "portfolio": "投资组合",
     "settings": "设置",
-    "connectWallet": "连接钱包"
+    "connectWallet": "连接钱包",
+    "demo": "演示",
+    "demoTooltip": "观看 SafeFlow 演示视频"
   },
   "chat": {
     "title": "AI 收益代理",
